@@ -45,7 +45,7 @@ CHECKS = [
     {"id": "service", "name": "Service access", "kind": "service", "packages": [],
      "detail": "Workshop API key + endpoint",
      "approvedSteps": ["Open `workshop.env` and confirm WORKSHOP_ENDPOINT", "Confirm WORKSHOP_KEY is set (re-run `check.py --setup`)", "Re-run the check"]},
-    {"id": "exercise", "name": "Sample exercise", "kind": "exercise", "packages": [],
+    {"id": "exercise", "name": "Sample exercise", "kind": "exercise", "packages": ["pyyaml"],
      "detail": "Runs the starter eval and compares output",
      "approvedSteps": ["Make sure Workshop dependencies pass first", "Re-run the check and paste the full output"]},
     {"id": "deps-evals", "name": "Trace grader package", "kind": "deps", "packages": ["jsonschema"],

@@ -19,8 +19,7 @@ The attendee gives you two values from their Get Ready page: `SERVER` and `TOKEN
    - `python -m venv .venv-unstuck`
    - activate it (`.venv-unstuck\Scripts\activate` on Windows, `source .venv-unstuck/bin/activate` elsewhere)
 3. Sign in to the workshop service: `python check.py --server SERVER --token TOKEN --setup`
-4. Install packages: `pip install $(python check.py --server SERVER --token TOKEN --packages)`
-   (on Windows PowerShell, run `--packages` first and pass its output to `pip install`).
+4. Install packages: `python check.py --server SERVER --token TOKEN --install`
 5. Run the checks: `python check.py --server SERVER --token TOKEN`
 6. If a check fails, fix only setup problems (runtime, packages, sign-in, endpoint), using
    the error detail. Do not change or complete the workshop exercise itself. Re-run step 5.
