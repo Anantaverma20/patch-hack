@@ -132,7 +132,7 @@ function App() {
     ${role === "attendee" && html`<nav class="bottom-nav">${nav.map(([k, label, ic]) => html`
       <a href=${`#/attendee/${k}`} class=${current[0] === k ? "on" : ""}><${Icon} n=${ic} s=${20} />${label}</a>`)}</nav>`}
     ${rescue && html`<${Rescue} sid=${rescue} me=${me} onClose=${() => setRescue(null)} />`}
-    ${role === "organizer" && html`<${Copilot} />`}
+    <${Copilot} visible=${role === "organizer"} />
     <${Toasts} />
   </div>`;
 }

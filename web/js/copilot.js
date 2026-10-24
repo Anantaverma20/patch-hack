@@ -13,7 +13,7 @@ function fmt(text) {
 
 const SUGGESTIONS = ["What needs my attention right now?", "Publish the suggested fix for the strongest group.", "Which sessions have the lowest setup readiness?"];
 
-export function Copilot() {
+export function Copilot({ visible = true }) {
   const [enabled, setEnabled] = useState(false);
   const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState([]);
@@ -23,7 +23,7 @@ export function Copilot() {
   const end = useRef();
   useEffect(() => { api("/api/copilot/status").then((s) => setEnabled(s.enabled)).catch(() => {}); }, []);
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, busy]);
-  if (!enabled) return null;
+  if (!enabled || !visible) return null;  // stays mounted, so chat + pending approvals survive role switches
 
   const absorb = (r) => {
     setConv({ session_id: r.session_id, previous_turn_id: r.turn_id });
@@ -44,7 +44,10 @@ export function Copilot() {
   const decide = async (a, allow) => {
     setMsgs((m) => m.map((x) => (x === a ? { ...x, decided: allow ? "approved" : "denied" } : x))); setBusy(true);
     try { absorb(await api("/api/copilot/approve", { session_id: a.session_id, previous_turn_id: a.turn_id, tool_call_id: a.tool_call_id, thread_id: a.thread_id, allow })); }
-    catch (e) { setMsgs((m) => [...m, { role: "agent", text: "Approval didn't go through. Try again." }]); }
+    catch (e) {
+      setMsgs((m) => [...m.map((x) => (x.tool_call_id === a.tool_call_id ? { ...x, decided: undefined } : x)),
+        { role: "agent", text: "Approval didn't go through. Try again." }]);
+    }
     setBusy(false);
   };
 
