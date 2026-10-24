@@ -67,16 +67,33 @@ Optional: set `OPENAI_API_KEY` (and `OPENAI_MODEL`) to let an OpenAI model refin
 
 **Railway:** New project → Deploy from GitHub repo, copy the variables from `.env`. Railway reads `railway.json`.
 
-## Demo script (about 3 minutes)
+## Demo script (about 4 minutes)
 
-Press **Reset demo** right before going on stage. The schedule is relative to the reset time.
+**Before going on stage**
+- Open the live site a minute early: Render's free plan sleeps after 15 idle minutes and takes ~40 s to wake.
+- Start TrueForge in your own terminal (`npx @truefoundry/trueforge@latest`) and open http://localhost:8790 → **Agents** → **unstuck-organizer-copilot** → **Try**.
+- Put the attendee view (phone width), the organizer Help queue and the TrueForge chat side by side.
+- Press **Reset demo**. The schedule is relative to the reset time.
 
+**Run**
 1. **Join** → *Use sample attendee* → **Build my day**. The goal is evaluating AI agents.
 2. **Get Ready** → *Start guided setup* → run the Claude Code command in a terminal. The skill installs packages; the checklist turns green live. **Service access** stays blocked: the handout's endpoint was retired.
-3. **Request help** → **Organizer → Help queue**: "6 attendees failed Service access. All 6 use endpoint `/mock/us-old/v1`. 0 of 19 who passed use it." → *Inspect evidence* → *Review & publish fix* (human approval). The simulated attendees re-verify within seconds.
-4. Back in the terminal, the agent re-runs setup → all checks pass, and the report closes as **Verified by check**.
-5. **Organizer → Sessions** → *Mark full* on "Agent Evals, Hands-on".
-6. **Attendee → My Day** shows the alert → **View alternatives** → "Grading Agent Traces covers agent evaluation, your setup passes 4 of 5 checks, starts in 18 min nearby" → **Why this?** shows the graph path → *Switch*.
-7. It needs one more package → **Get ready** → re-run the skill → Ready.
+3. **Request help** → **Organizer → Help queue**: "6 attendees failed Service access. All 6 use endpoint `/mock/us-old/v1`. 0 of 19 who passed use it." → *Inspect evidence*.
+4. **TrueForge copilot** (OpenAI model, Unstuck MCP tools):
+   - Ask *"What needs my attention right now?"* It calls `list_shared_blockers` and `get_blocker_evidence`, leads with the strong lead, calls it a *possible* common cause, and marks the Windows build-tools group as weak.
+   - Ask *"Publish the suggested fix for the endpoint group."* It calls `publish_fix`, and TrueForge **pauses for approval**. Point at the Help queue: nothing has changed yet.
+   - Click **Approve**. The Help queue flips to **Fix sent**, and the simulated attendees re-verify within seconds.
+   - (Without TrueForge, the same step is *Review & publish fix* in the Help queue.)
+5. Back in the terminal, the agent re-runs setup → all checks pass, and the report closes as **Verified by check**.
+6. **Organizer → Sessions** → *Mark full* on "Agent Evals, Hands-on". (Or ask the copilot to mark it full: another approval.)
+7. **Attendee → My Day** shows the alert → **View alternatives** → "Grading Agent Traces covers agent evaluation, your setup passes 4 of 5 checks, starts in 18 min nearby" → **Why this?** shows the graph path → *Switch*.
+8. It needs one more package → **Get ready** → re-run the skill → Ready.
 
-Backup if the terminal fails: "Use simulated report (demo backup)" on Get Ready. It goes through the same endpoint and is labelled simulated.
+**What each sponsor did**
+- **FalkorDB**: Plan Rescue and shared-cause detection are multi-hop graph queries; "Why this?" is the path.
+- **TrueForge + OpenAI**: the organizer copilot reasons over the graph through MCP tools, and every write waits for a human approval. On-site triage uses an OpenAI model too.
+- **Qodo**: reviewed every PR; see PRs #2 and #3 for the findings it caught and the fixes.
+
+**Backups**
+- Terminal fails: "Use simulated report (demo backup)" on Get Ready. It goes through the same endpoint and is labelled simulated.
+- TrueForge fails: use *Review & publish fix* in the Help queue (same approval story, in the app).
