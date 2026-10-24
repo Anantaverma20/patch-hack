@@ -433,16 +433,21 @@ def org_sessions():
 
 @app.post("/api/org/sessions/{sid}/status")
 def set_status(sid: str, body: dict = Body(...)):
-    status = body["status"]
+    status, room = body["status"], body.get("room")
     if status not in ("open", "full", "moved", "cancelled"):
-        raise HTTPException(400)
+        raise HTTPException(400, "status must be open, full, moved or cancelled")
+    if not one("MATCH (s:Session {id:$sid}) RETURN s.id AS id", {"sid": sid}):
+        raise HTTPException(404, f"unknown session {sid}")
+    if status == "moved" and not (room and one("MATCH (r:Room {id:$room}) RETURN r.id AS id", {"room": room})):
+        raise HTTPException(400, "moved needs an existing room")
     run("MATCH (s:Session {id:$sid}) SET s.status = $st, s.statusAt = $now, s.statusSource = 'organizer'",
         {"sid": sid, "st": status, "now": now_ms()})
     if status == "full":
         run("MATCH (s:Session {id:$sid}) SET s.taken = s.capacity", {"sid": sid})
-    if status == "moved" and body.get("room"):
-        run("MATCH (s:Session {id:$sid})-[i:IN]->() DELETE i", {"sid": sid})
-        run("MATCH (s:Session {id:$sid}), (r:Room {id:$room}) CREATE (s)-[:IN]->(r)", {"sid": sid, "room": body["room"]})
+    if status == "moved":
+        # Single query: if the room didn't match, nothing is deleted.
+        run("MATCH (s:Session {id:$sid}), (r:Room {id:$room}) OPTIONAL MATCH (s)-[i:IN]->() DELETE i "
+            "WITH DISTINCT s, r CREATE (s)-[:IN]->(r)", {"sid": sid, "room": room})
     bump()
     return {"ok": True}
 
@@ -551,7 +556,10 @@ def publish_fix(body: dict = Body(...)):
     resolved once the attendee's check passes again (or they explicitly confirm)."""
     now = now_ms()
     fid = f"fix-{now}"
-    ids = body["ids"]
+    ids = [r["id"] for r in rows("MATCH (h:HelpReport) WHERE h.id IN $ids AND h.status = 'open' RETURN h.id AS id",
+                                 {"ids": body["ids"]})]
+    if not ids:
+        raise HTTPException(409, "no open reports to send a fix to")
     run("CREATE (f:Fix {id:$fid, text:$text, at:$now, approvedBy:'Organizer', checkId:$cid, factKey:$k, factValue:$v})"
         "-[:RESOLVES]->(:Cause {id:$cause, check:$cid, factKey:$k, factValue:$v, confirmed:false})",
         {"fid": fid, "text": body["text"], "now": now, "cid": body.get("checkId", ""), "k": body.get("key", ""),
@@ -572,12 +580,15 @@ def publish_fix(body: dict = Body(...)):
 
 @app.middleware("http")
 async def mcp_auth(request: Request, call_next):
-    """When MCP_TOKEN is set, /mcp requires `Authorization: Bearer <MCP_TOKEN>`."""
+    """/mcp requires `Authorization: Bearer <MCP_TOKEN>`; without MCP_TOKEN configured it stays off."""
+    if not request.url.path.startswith("/mcp"):
+        return await call_next(request)
     token = os.getenv("MCP_TOKEN")
-    if token and request.url.path.startswith("/mcp"):
-        given = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
-        if not hmac.compare_digest(given, token):
-            return JSONResponse({"error": "unauthorized"}, 401)
+    if not token:
+        return JSONResponse({"error": "MCP is disabled until MCP_TOKEN is configured"}, 503)
+    given = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    if not hmac.compare_digest(given, token):
+        return JSONResponse({"error": "unauthorized"}, 401)
     return await call_next(request)
 
 
