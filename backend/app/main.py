@@ -1,7 +1,9 @@
 """Unstuck Live API. Serves the static web app from ../web as well."""
+import hmac
 import os
 import random
 import threading
+from contextlib import asynccontextmanager
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -9,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import planner, seed
 from .graph import bump, now_ms, one, rows, run, version
+from .mcp_tools import http_app as mcp_http_app, mcp_server
 from .triage import triage
 
 MIN = 60_000
@@ -22,7 +25,14 @@ FIX_TEXT = {
     "python_too_old": "Create the workshop venv with Python 3.11+: `py -3.11 -m venv .venv-unstuck`.",
 }
 
-app = FastAPI(title="Unstuck Live")
+@asynccontextmanager
+async def lifespan(_app):
+    _ensure_seeded()
+    async with mcp_server.session_manager.run():
+        yield
+
+
+app = FastAPI(title="Unstuck Live", lifespan=lifespan)
 _pings: dict[str, int] = {}          # token -> last successful ping to the mock workshop API
 _sim = {"pending_until": 0}
 _tick_lock = threading.Lock()
@@ -31,11 +41,6 @@ _tick_lock = threading.Lock()
 def _ensure_seeded() -> None:
     if not one("MATCH (c:Conference) RETURN c.id AS id"):
         seed.reset()
-
-
-@app.on_event("startup")
-def startup() -> None:
-    _ensure_seeded()
 
 
 def conference() -> dict:
@@ -561,6 +566,22 @@ def publish_fix(body: dict = Body(...)):
     _sim["pending_until"] = now + 12_000
     bump()
     return {"id": fid}
+
+
+# ---------------------------------------------------------------- MCP (agent harnesses)
+
+@app.middleware("http")
+async def mcp_auth(request: Request, call_next):
+    """When MCP_TOKEN is set, /mcp requires `Authorization: Bearer <MCP_TOKEN>`."""
+    token = os.getenv("MCP_TOKEN")
+    if token and request.url.path.startswith("/mcp"):
+        given = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+        if not hmac.compare_digest(given, token):
+            return JSONResponse({"error": "unauthorized"}, 401)
+    return await call_next(request)
+
+
+app.router.routes.extend(mcp_http_app.routes)
 
 
 # ---------------------------------------------------------------- static

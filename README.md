@@ -25,6 +25,22 @@ One graph holds attendees, goals, sessions, rooms, walking routes, required chec
 (HelpReport)-[:FROM|FAILED|AT_STEP|IN_SESSION]->(...)   (Fix)-[:RESOLVES]->(Cause)-[:EXPLAINS]->(HelpReport)
 ```
 
+## TrueForge + OpenAI: organizer copilot
+
+Unstuck exposes its FalkorDB-backed organizer functions as an MCP server at `/mcp` (streamable HTTP, `backend/app/mcp_tools.py`):
+
+| Tool | Kind |
+|---|---|
+| `list_shared_blockers`, `get_blocker_evidence`, `get_readiness_summary`, `list_sessions` | read |
+| `publish_fix`, `assign_helper`, `set_session_status` | write: require approval |
+
+In TrueForge (`npx @truefoundry/trueforge@latest`, then http://localhost:8790):
+
+1. **Settings → Models**: add OpenAI with your key.
+2. **Settings → Connectors → Add MCP Server**: URL `https://<your-app>/mcp`, header `Authorization: Bearer <MCP_TOKEN>`.
+3. **Settings → Skills → Import from GitHub**: this repo, `skill/unstuck-setup`. Optionally add a Daytona sandbox so the agent can run the setup skill in a clean environment before it is published.
+4. **Build Agent**: model `openai/...`, the `unstuck` MCP tools, approval required for `publish_fix`, `assign_helper` and `set_session_status`, and the instructions in `trueforge/agent-instructions.md`.
+
 ## Trust rules
 
 - Readiness changes **only** from `check.py` results. An agent saying "done" changes nothing.
