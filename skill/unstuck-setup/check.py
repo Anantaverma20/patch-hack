@@ -18,12 +18,15 @@ import importlib.util
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 import urllib.error
 import urllib.request
 
 ENV_FILE = "workshop.env"
+# Plain distribution names only, so nothing from the manifest can be read as a pip option.
+PACKAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 IMPORT_NAMES = {"pyyaml": "yaml", "jsonschema": "jsonschema", "tabulate": "tabulate"}
 
 
@@ -127,6 +130,9 @@ def main():
         print(" ".join(packages))
         return
     if a.install:
+        bad = [p for p in packages if not PACKAGE_RE.match(p)]
+        if bad:
+            sys.exit(f"Refusing to install unexpected package names from the manifest: {bad}")
         # Same interpreter that runs the checks, so it works in any shell and any active venv.
         if packages:
             subprocess.run([sys.executable, "-m", "pip", "install", *packages], check=True)
