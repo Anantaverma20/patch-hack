@@ -24,3 +24,5 @@ services:
         value: unstuck
       - key: OPENAI_API_KEY
         sync: false
+      - key: MCP_TOKEN
+        sync: false
