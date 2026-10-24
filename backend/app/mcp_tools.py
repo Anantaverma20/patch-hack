@@ -5,6 +5,7 @@ harness should require human approval for them (TrueForge: require_approval_for_
 """
 from fastapi import HTTPException
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 
@@ -27,15 +28,15 @@ READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False)
 WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False)
 
 
-def _group(check_id: str, error_code: str) -> dict | None:
+def _group(check_id: str, error_code: str) -> dict:
+    """Refusals raise ToolError so MCP clients get an error result (isError), not a success."""
     from . import main
 
-    return next((c for c in main.clusters() if c["checkId"] == check_id and c["code"] == error_code), None)
-
-
-def _missing(check_id: str, error_code: str) -> dict:
-    return {"error": f"No open blocker group for check_id='{check_id}', error_code='{error_code}'. "
-                     "Call list_shared_blockers for the current groups."}
+    c = next((c for c in main.clusters() if c["checkId"] == check_id and c["code"] == error_code), None)
+    if not c:
+        raise ToolError(f"No open blocker group for check_id='{check_id}', error_code='{error_code}'. "
+                        "Call list_shared_blockers for the current groups.")
+    return c
 
 
 @mcp_server.tool(annotations=READ)
@@ -56,8 +57,6 @@ def list_shared_blockers() -> list[dict]:
 def get_blocker_evidence(check_id: str, error_code: str) -> dict:
     """Reports, error messages, steps and shared environment facts behind one blocker group."""
     c = _group(check_id, error_code)
-    if not c:
-        return _missing(check_id, error_code)
     return {"check": c["check"], "error_code": c["code"], "facts": c["facts"], "passers_total": c["passersTotal"],
             "reports": [{"attendee": r["name"], "step": r["step"], "error": r["error"], "status": r["status"],
                          "asked_for_helper": r["needsHelper"]} for r in c["reports"]]}
@@ -90,11 +89,9 @@ def publish_fix(check_id: str, error_code: str, fix_text: str) -> dict:
     from . import main
 
     c = _group(check_id, error_code)
-    if not c:
-        return _missing(check_id, error_code)
     open_ids = [r["id"] for r in c["reports"] if r["status"] == "open"]
     if not open_ids:
-        return {"error": "Every report in this group already received a fix; waiting for re-checks."}
+        raise ToolError("Every report in this group already received a fix; waiting for re-checks.")
     fact = c["fact"] or {}
     main.publish_fix({"ids": open_ids, "text": fix_text, "checkId": check_id,
                       "key": fact.get("key", ""), "value": fact.get("value", "")})
@@ -107,8 +104,6 @@ def assign_helper(check_id: str, error_code: str, helper: str) -> dict:
     from . import main
 
     c = _group(check_id, error_code)
-    if not c:
-        return _missing(check_id, error_code)
     main.assign({"ids": [r["id"] for r in c["reports"]], "helper": helper})
     return {"assigned": helper, "reports": len(c["reports"])}
 
@@ -122,7 +117,7 @@ def set_session_status(session_id: str, status: str, room_id: str = "") -> dict:
     try:
         main.set_status(session_id, {"status": status, "room": room_id or None})
     except HTTPException as e:
-        return {"error": e.detail}
+        raise ToolError(f"Session update rejected: {e.detail}") from e
     return {"session": session_id, "status": status, "room": room_id or None}
 
 
