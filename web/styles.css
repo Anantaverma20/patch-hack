@@ -378,7 +378,11 @@ label.field { display: block; font-weight: 600; font-size: 14px; margin: 18px 0 
   .bottom-nav a.on { color: var(--ink); font-weight: 700; background: var(--lime-soft); }
   .mobile-logo { display: flex !important; }
 }
-@media (max-width: 520px) { .grid2, .grid4 { grid-template-columns: 1fr; } .next-card h2 { font-size: 26px; } }
+@media (max-width: 520px) {
+  .grid2, .grid4 { grid-template-columns: 1fr; } .next-card h2 { font-size: 26px; }
+  .attn { flex-wrap: wrap; } .attn .grow { flex-basis: calc(100% - 52px); } .attn > .btn { margin-left: 52px; }
+  .facts { grid-template-columns: 1fr; }
+}
 .mobile-logo { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
