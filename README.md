@@ -45,11 +45,11 @@ cd backend && uvicorn app.main:app --port 8765 --reload
 
 Optional: set `OPENAI_API_KEY` (and `OPENAI_MODEL`) to let an OpenAI model refine triage summaries. Rules-based triage always runs, so the demo never depends on a model call.
 
-## Deploy (Railway)
+## Deploy
 
-1. New project → Deploy from GitHub repo.
-2. Variables: copy everything from `.env`.
-3. Railway reads `railway.json` and starts `uvicorn` on `$PORT`. Every push redeploys.
+**Render (recommended):** New → Blueprint → pick this repo. Render reads `render.yaml` and asks for the FalkorDB host, port, username and password (leave `OPENAI_API_KEY` empty if you don't have one). Every push to `main` redeploys. The free plan sleeps after 15 idle minutes, so open the site a minute before demoing.
+
+**Railway:** New project → Deploy from GitHub repo, copy the variables from `.env`. Railway reads `railway.json`.
 
 ## Demo script (about 3 minutes)
 

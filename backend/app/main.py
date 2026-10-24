@@ -80,6 +80,16 @@ def _set_env(aid: str, key: str, value: str) -> None:
 
 # ---------------------------------------------------------------- shared
 
+@app.get("/api/health")
+def health():
+    """For the host's health check: fails when FalkorDB is unreachable, unlike /api/version."""
+    try:
+        one("RETURN 1 AS ok")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "falkordb": "unreachable", "error": type(exc).__name__}, 503)
+    return {"ok": True, "falkordb": "ok"}
+
+
 @app.get("/api/version")
 def get_version():
     _tick()
