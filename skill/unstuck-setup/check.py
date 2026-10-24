@@ -6,6 +6,7 @@ an agent's judgement. Standard library only, so it runs before anything is insta
 
   python check.py --server URL --token TOKEN --setup      write workshop.env (endpoint + key)
   python check.py --server URL --token TOKEN --packages   print packages to pip install
+  python check.py --server URL --token TOKEN --install    pip install them into this Python
   python check.py --server URL --token TOKEN              run checks and print results
   python check.py --server URL --token TOKEN --send       ...then ask consent and report
 
@@ -17,6 +18,7 @@ import importlib.util
 import json
 import os
 import platform
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -106,6 +108,7 @@ def main():
     ap.add_argument("--token", required=True)
     ap.add_argument("--setup", action="store_true")
     ap.add_argument("--packages", action="store_true")
+    ap.add_argument("--install", action="store_true")
     ap.add_argument("--send", action="store_true")
     ap.add_argument("--yes", action="store_true", help="consent already given by the attendee")
     a = ap.parse_args()
@@ -119,8 +122,15 @@ def main():
             f.write(f"WORKSHOP_ENDPOINT={manifest['endpoint']}\nWORKSHOP_KEY={manifest['key']}\n")
         print(f"Wrote {ENV_FILE} (endpoint {manifest['endpoint']}).")
         return
+    packages = sorted({p for c in manifest["checks"] for p in c.get("packages", [])})
     if a.packages:
-        print(" ".join(sorted({p for c in manifest["checks"] for p in c.get("packages", [])})))
+        print(" ".join(packages))
+        return
+    if a.install:
+        # Same interpreter that runs the checks, so it works in any shell and any active venv.
+        if packages:
+            subprocess.run([sys.executable, "-m", "pip", "install", *packages], check=True)
+        print("Installed: " + (", ".join(packages) or "nothing needed"))
         return
 
     results = []

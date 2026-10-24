@@ -298,7 +298,7 @@ curl -fsSL ${origin}/skill/SKILL.md -o AGENTS.md
 codex "Follow AGENTS.md to prepare this laptop. SERVER=${origin} TOKEN=${token}"`,
     manual: `curl -fsSL ${origin}/skill/check.py -o check.py
 python check.py --server ${origin} --token ${token} --setup
-pip install ${[...new Set(checks.flatMap((c) => c.packages || []))].join(" ") || "pyyaml tabulate"}
+python check.py --server ${origin} --token ${token} --install
 python check.py --server ${origin} --token ${token} --send`,
   };
 
