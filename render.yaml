@@ -1,0 +1,26 @@
+# Render Blueprint: New > Blueprint > pick this repo. Render asks for the sync:false values.
+services:
+  - type: web
+    name: unstuck-live
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/version
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: FALKOR_HOST
+        sync: false
+      - key: FALKOR_PORT
+        sync: false
+      - key: FALKOR_USERNAME
+        sync: false
+      - key: FALKOR_PASSWORD
+        sync: false
+      - key: FALKOR_SSL
+        value: "true"
+      - key: UNSTUCK_GRAPH
+        value: unstuck
+      - key: OPENAI_API_KEY
+        sync: false
