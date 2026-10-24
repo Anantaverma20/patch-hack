@@ -388,3 +388,27 @@ label.field { display: block; font-weight: 600; font-size: 14px; margin: 18px 0 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- organizer copilot pop-up ---------- */
+.cp-fab {
+  position: fixed; right: 24px; bottom: 24px; z-index: 70; display: inline-flex; gap: 8px; align-items: center;
+  background: var(--ink); color: #fff; border: 0; border-radius: 99px; padding: 13px 20px; font-weight: 700; cursor: pointer;
+  box-shadow: 0 14px 30px -12px rgba(0, 0, 0, .45); animation: popIn .45s var(--ease) both;
+}
+.cp-fab svg { color: var(--lime); animation: twinkle 3.2s ease-in-out infinite; }
+.cp-fab:hover { transform: translateY(-2px); }
+.cp-panel {
+  position: fixed; right: 24px; bottom: 24px; z-index: 75; width: min(420px, calc(100vw - 32px)); height: min(620px, calc(100vh - 120px));
+  background: var(--bg); border: 1px solid var(--line); border-radius: 20px; box-shadow: 0 30px 60px -20px rgba(0, 0, 0, .35);
+  display: flex; flex-direction: column; overflow: hidden; animation: popIn .4s var(--ease) both;
+}
+.cp-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; background: var(--card); border-bottom: 1px solid var(--line); }
+.cp-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.cp-msg { max-width: 90%; padding: 10px 13px; border-radius: 14px; font-size: 14px; line-height: 1.45; }
+.cp-msg.user { align-self: flex-end; background: var(--ink); color: #fff; border-bottom-right-radius: 4px; }
+.cp-msg.agent { align-self: flex-start; background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.cp-msg .cp-li { display: block; padding-left: 12px; position: relative; }
+.cp-msg .cp-li::before { content: "•"; position: absolute; left: 0; color: var(--lime-deep); }
+.cp-approval { background: var(--amber-soft); border: 1px solid #efd3a3; border-radius: 14px; padding: 12px; }
+.cp-input { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--line); background: var(--card); }
+@media (max-width: 860px) { .cp-fab { bottom: 90px; } .cp-panel { right: 16px; bottom: 16px; } }

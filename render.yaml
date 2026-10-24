@@ -26,3 +26,5 @@ services:
         sync: false
       - key: MCP_TOKEN
         sync: false
+      - key: TRUEFORGE_URL
+        sync: false
