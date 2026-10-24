@@ -9,7 +9,7 @@ from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import planner, seed
+from . import copilot, planner, seed
 from .graph import bump, now_ms, one, rows, run, version
 from .mcp_tools import http_app as mcp_http_app, mcp_server
 from .triage import triage
@@ -593,6 +593,7 @@ async def mcp_auth(request: Request, call_next):
 
 
 app.router.routes.extend(mcp_http_app.routes)
+app.include_router(copilot.router)
 
 
 # ---------------------------------------------------------------- static

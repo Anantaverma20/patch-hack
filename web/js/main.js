@@ -2,6 +2,7 @@ import { render, useEffect, useLayoutEffect, useRef, useState } from "../vendor/
 import { AID, Icon, LogoMark, Toasts, api, html, toast, useData } from "./core.js";
 import { GetReady, Help, Join, MyDay, Rescue, Sessions } from "./attendee.js";
 import { HelpQueue, OrgSessions, Overview, Readiness } from "./organizer.js";
+import { Copilot } from "./copilot.js";
 
 const NAV = {
   attendee: [["myday", "My Day", "home"], ["sessions", "Sessions", "calendar"], ["ready", "Get Ready", "checkCircle"], ["help", "Help", "message"]],
@@ -131,6 +132,7 @@ function App() {
     ${role === "attendee" && html`<nav class="bottom-nav">${nav.map(([k, label, ic]) => html`
       <a href=${`#/attendee/${k}`} class=${current[0] === k ? "on" : ""}><${Icon} n=${ic} s=${20} />${label}</a>`)}</nav>`}
     ${rescue && html`<${Rescue} sid=${rescue} me=${me} onClose=${() => setRescue(null)} />`}
+    ${role === "organizer" && html`<${Copilot} />`}
     <${Toasts} />
   </div>`;
 }
