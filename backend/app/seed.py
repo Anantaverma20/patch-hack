@@ -18,7 +18,7 @@ except Exception:  # no tz database on this machine; the conference week is in P
 
 MIN = 60_000
 DAYS = 6
-SEED_VERSION = 2  # bump when the seed changes shape; the server reseeds older graphs on start
+SEED_VERSION = 3  # bump when the seed changes shape; the server reseeds older graphs on start
 
 ROOMS = [
     {"id": "hall-a", "name": "Hall A", "floor": 1},
@@ -136,46 +136,59 @@ STEPS = {
 }
 
 
+def anchor_hour(t0: int) -> int:
+    """The round hour today's live block is built around: the first full hour at least
+    20 minutes away (never before 9 AM), so sessions start at times like 3:00 PM."""
+    d = datetime.fromtimestamp(t0 / 1000, TZ)
+    h = (d + timedelta(minutes=79)).replace(minute=0, second=0, microsecond=0)
+    if h.hour < 9:
+        h = h.replace(hour=9)
+    return int(h.timestamp() * 1000)
+
+
 def _today_block(t0: int):
-    """Day 0: relative to reset, so the stage demo always starts mid-morning-ish."""
+    """Day 0: built around the next round hour, so the stage demo always starts live: the
+    keynote is on and the hands-on workshops begin on the hour."""
+    h0 = anchor_hour(t0)
+
     def s(id, title, speaker, room, start, dur, fmt, level, covers, requires, outcomes, summary, capacity=60, taken=20, **extra):
         return {"id": id, "title": title, "speaker": speaker, "room": room, "day": 0,
-                "start": t0 + start * MIN, "end": t0 + (start + dur) * MIN,
+                "start": h0 + start * MIN, "end": h0 + (start + dur) * MIN,
                 "format": fmt, "level": level, "covers": covers, "requires": requires,
                 "outcomes": outcomes, "summary": summary, "capacity": capacity, "taken": taken, **extra}
 
     return [
-        s("s1", "Opening keynote: Agents in the Wild", "Dana Okafor", "hall-a", -40, 45, "talk", "beginner",
+        s("s1", "Opening keynote: Agents in the Wild", "Dana Okafor", "hall-a", -60, 45, "talk", "beginner",
           {"evals": 1, "prod": 1}, [], ["Where agents fail in production today", "What changed this year"],
           "The state of agent deployments, failure stories, and what the week covers.", 800, 640, keynote=True),
-        s("s2", "Agent Evals, Hands-on", "Priya Natarajan", "lab-1", 15, 60, "workshop", "intermediate",
+        s("s2", "Agent Evals, Hands-on", "Priya Natarajan", "lab-1", 0, 60, "workshop", "intermediate",
           {"evals": 3}, EVALS_CHECKS,
           ["Build an eval set from real traces", "Write an LLM-as-judge grader", "Compare two agent versions"],
           "Build an evaluation harness for a tool-using agent, from dataset to regression report.", 40, 38),
-        s("s3", "Grading Agent Traces", "Marco Lindqvist", "room-b", 20, 60, "workshop", "intermediate",
+        s("s3", "Grading Agent Traces", "Marco Lindqvist", "room-b", 0, 60, "workshop", "intermediate",
           {"evals": 3, "prod": 1}, ["runtime", "deps-core", "service", "deps-evals"],
           ["Capture structured traces", "Grade tool-call accuracy", "Catch regressions before release"],
           "Evaluate agents step by step by grading their traces instead of only final answers.", 50, 31),
-        s("s4", "Red-teaming LLM Apps", "Ines Duarte", "lab-2", 20, 60, "workshop", "advanced",
+        s("s4", "Red-teaming LLM Apps", "Ines Duarte", "lab-2", 0, 60, "workshop", "advanced",
           {"evals": 2}, ["runtime", "deps-core"],
           ["Design adversarial test cases", "Score jailbreak resistance"],
           "Attack your own app before someone else does. Assumes prior eval experience.", 30, 19),
-        s("s5", "Benchmarks Aren't Evals", "Kofi Mensah", "atrium", 5, 30, "talk", "beginner",
+        s("s5", "Benchmarks Aren't Evals", "Kofi Mensah", "atrium", 0, 30, "talk", "beginner",
           {"evals": 2}, [], ["Why leaderboard scores mislead", "Choosing task-specific metrics"],
           "A short talk on why public benchmarks rarely predict how your agent behaves.", 120, 64),
-        s("s6", "RAG From Scratch", "Lena Fischer", "room-c", 15, 60, "workshop", "beginner",
+        s("s6", "RAG From Scratch", "Lena Fischer", "room-c", 0, 60, "workshop", "beginner",
           {"rag": 3}, ["runtime", "deps-core"], ["Chunk and embed documents", "Evaluate retrieval quality"],
           "Build a retrieval pipeline end to end with no framework.", 40, 27),
-        s("s8", "Prompt Patterns That Last", "Sam Whitfield", "hall-a", 90, 30, "talk", "beginner",
+        s("s8", "Prompt Patterns That Last", "Sam Whitfield", "hall-a", 60, 30, "talk", "beginner",
           {"prompting": 3}, [], ["Reusable prompt structures", "When to stop prompting and start evaluating"],
           "Patterns that survive model upgrades.", 800, 300),
-        s("s10", "Vector Search Deep Dive", "Aiko Tanaka", "room-c", 90, 45, "talk", "advanced",
+        s("s10", "Vector Search Deep Dive", "Aiko Tanaka", "room-c", 60, 45, "talk", "advanced",
           {"rag": 2}, [], ["Index trade-offs", "Hybrid search"], "How vector indexes actually behave at scale.", 60, 22),
-        s("s7", "Shipping Agents to Production", "Rafael Ortiz", "lab-2", 130, 60, "workshop", "intermediate",
+        s("s7", "Shipping Agents to Production", "Rafael Ortiz", "lab-2", 120, 60, "workshop", "intermediate",
           {"prod": 3, "evals": 1}, EVALS_CHECKS,
           ["Package and trace an agent", "Roll out behind a flag", "Monitor regressions"],
           "Take a working agent and make it safe to ship.", 40, 22),
-        s("s9", "Agent Eval Office Hours", "Priya Natarajan", "atrium", 200, 60, "office hours", "intermediate",
+        s("s9", "Agent Eval Office Hours", "Priya Natarajan", "atrium", 180, 60, "office hours", "intermediate",
           {"evals": 2}, [], ["Bring your eval questions", "Review your grader with an expert"],
           "Drop-in help on evaluation design with the Agent Evals instructors.", 30, 6),
     ]
@@ -195,10 +208,10 @@ AGENDA = [
      {"evals": 3}, EVALS_CHECKS + ["deps-evals"],
      ["Write a judge prompt with a rubric", "Measure agreement with human labels", "Catch judge bias"],
      "A judge model is only useful if it agrees with people. Build one and prove it does."),
-    ("d1-tests", 1, "10:00", 40, "room-b", "Why Your Agent Passes Tests and Fails Users", "Nadia Rahman", "talk", "beginner",
+    ("d1-tests", 1, "10:00", 45, "room-b", "Why Your Agent Passes Tests and Fails Users", "Nadia Rahman", "talk", "beginner",
      {"evals": 2}, [], ["The gap between test sets and real traffic", "Sampling production conversations for evals"],
      "Stories from teams whose dashboards were green while users churned."),
-    ("d1-observe", 1, "11:00", 40, "room-c", "Observability for LLM Apps: Traces, Spans and Cost", "Ethan Park", "talk", "intermediate",
+    ("d1-observe", 1, "11:00", 45, "room-c", "Observability for LLM Apps: Traces, Spans and Cost", "Ethan Park", "talk", "intermediate",
      {"prod": 2, "evals": 1}, [], ["What to log for every model call", "Tracing multi-step agents", "Cost per task, not per token"],
      "Instrument an agent so you can answer 'what happened?' in under a minute."),
     ("d1-lunch", 1, "12:00", 60, "atrium", "Lunch & Birds-of-a-Feather Tables", "Conference team", "networking", "beginner",
@@ -207,16 +220,16 @@ AGENDA = [
      {"evals": 2, "prod": 1}, ["runtime", "git", "deps-data"],
      ["Load agent traces into a DataFrame", "Find slow and expensive steps", "Plot failure patterns"],
      "Turn a pile of JSON traces into answers about speed, cost and failures."),
-    ("d1-panel", 1, "13:30", 45, "hall-a", "Panel: Who Grades the Graders?", "Hugo Laurent (moderator)", "panel", "intermediate",
+    ("d1-panel", 1, "14:00", 45, "hall-a", "Panel: Who Grades the Graders?", "Hugo Laurent (moderator)", "panel", "intermediate",
      {"evals": 2}, [], ["When to trust automated evals", "How teams combine human and model review"],
      "Eval leads from four companies argue about judges, labels and leaderboards."),
-    ("d1-budget", 1, "14:30", 40, "room-b", "Cost and Latency Budgets for Agents", "Leila Haddad", "talk", "intermediate",
+    ("d1-budget", 1, "15:00", 45, "room-b", "Cost and Latency Budgets for Agents", "Leila Haddad", "talk", "intermediate",
      {"prod": 2}, [], ["Setting a budget per task", "Where agents waste tokens", "Caching and early exits"],
      "Agents are loops, and loops get expensive. Keep them inside a budget."),
-    ("d1-clinic", 1, "15:30", 60, "atrium", "Evals Clinic: Bring Your Failing Test", "Priya Natarajan", "office hours", "intermediate",
+    ("d1-clinic", 1, "16:00", 60, "atrium", "Evals Clinic: Bring Your Failing Test", "Priya Natarajan", "office hours", "intermediate",
      {"evals": 2}, [], ["Get feedback on your eval design", "Debug a flaky grader with an expert"],
      "Drop in with a real eval problem and leave with a plan."),
-    ("d1-lightning", 1, "16:30", 45, "hall-a", "Lightning Talks: Agent Failure Stories", "Community speakers", "talk", "beginner",
+    ("d1-lightning", 1, "17:00", 45, "hall-a", "Lightning Talks: Agent Failure Stories", "Community speakers", "talk", "beginner",
      {"evals": 1, "prod": 1}, [], ["Nine five-minute stories of agents gone wrong", "What each team changed afterwards"],
      "Short, funny and painful lessons from production."),
 
@@ -232,10 +245,10 @@ AGENDA = [
      {"graphs": 3, "rag": 2}, ["runtime", "git", "docker", "deps-graph"],
      ["Run FalkorDB locally in Docker", "Turn documents into a knowledge graph", "Answer multi-hop questions with Cypher"],
      "Combine a knowledge graph with retrieval to answer the questions vector search gets wrong."),
-    ("d2-chunking", 2, "10:00", 40, "room-b", "Chunking Strategies That Actually Matter", "Daniel Asante", "talk", "beginner",
+    ("d2-chunking", 2, "10:00", 45, "room-b", "Chunking Strategies That Actually Matter", "Daniel Asante", "talk", "beginner",
      {"rag": 2}, [], ["Fixed, semantic and structural chunking compared", "How chunk size changes answers"],
      "A measured look at chunking, with numbers instead of opinions."),
-    ("d2-kg101", 2, "11:00", 40, "room-c", "Knowledge Graphs 101 for LLM Engineers", "Riya Kapoor", "talk", "beginner",
+    ("d2-kg101", 2, "11:00", 45, "room-c", "Knowledge Graphs 101 for LLM Engineers", "Riya Kapoor", "talk", "beginner",
      {"graphs": 2}, [], ["Nodes, edges and properties in five minutes", "When a graph beats a table or a vector index"],
      "Everything you need to know about graphs before tomorrow's hands-on sessions."),
     ("d2-lunch", 2, "12:00", 60, "atrium", "Lunch & Hallway Track", "Conference team", "networking", "beginner",
@@ -248,13 +261,13 @@ AGENDA = [
      {"graphs": 3, "mcp": 1}, ["runtime", "docker", "deps-graph"],
      ["Write multi-hop Cypher queries", "Expose queries as agent tools", "Let an agent choose the right query"],
      "Give an agent safe, structured access to a graph database."),
-    ("d2-rerank", 2, "14:45", 40, "room-b", "Reranking: The Cheapest Accuracy Win", "Carmen Ruiz", "talk", "intermediate",
+    ("d2-rerank", 2, "15:00", 45, "room-b", "Reranking: The Cheapest Accuracy Win", "Carmen Ruiz", "talk", "intermediate",
      {"rag": 2}, [], ["How cross-encoder rerankers work", "When reranking is worth the latency"],
      "One extra step that often fixes more than a bigger model."),
-    ("d2-oh", 2, "15:30", 60, "atrium", "Graph & Retrieval Office Hours", "Lena Fischer & Sakura Ito", "office hours", "intermediate",
+    ("d2-oh", 2, "16:00", 60, "atrium", "Graph & Retrieval Office Hours", "Lena Fischer & Sakura Ito", "office hours", "intermediate",
      {"graphs": 2, "rag": 2}, [], ["Review your retrieval setup", "Get help modelling your data as a graph"],
      "Bring your RAG or graph questions to the day's instructors."),
-    ("d2-lightning", 2, "16:30", 45, "hall-a", "Lightning Talks: RAG in the Real World", "Community speakers", "talk", "beginner",
+    ("d2-lightning", 2, "17:00", 45, "hall-a", "Lightning Talks: RAG in the Real World", "Community speakers", "talk", "beginner",
      {"rag": 1, "graphs": 1}, [], ["Eight short case studies from production RAG apps"], "What worked, what didn't, and what it cost."),
 
     # ---- Day 3: tools & MCP
@@ -269,10 +282,10 @@ AGENDA = [
      {"mcp": 3}, ["git", "node"],
      ["Scaffold an MCP server with npm", "Validate tool inputs with schemas", "Run it over stdio and HTTP"],
      "The same ideas as the Python workshop, for teams living in Node."),
-    ("d3-schemas", 3, "10:00", 40, "room-b", "Designing Tool Schemas Models Understand", "Ingrid Solberg", "talk", "intermediate",
+    ("d3-schemas", 3, "10:00", 45, "room-b", "Designing Tool Schemas Models Understand", "Ingrid Solberg", "talk", "intermediate",
      {"mcp": 2, "prompting": 1}, [], ["Naming and describing tools well", "Why fewer, clearer parameters win"],
      "Small changes to a tool's description that change how often the model uses it right."),
-    ("d3-security", 3, "11:00", 40, "room-c", "Securing Agent Tools: Auth, Scopes and Approvals", "Kwame Boateng", "talk", "advanced",
+    ("d3-security", 3, "11:00", 45, "room-c", "Securing Agent Tools: Auth, Scopes and Approvals", "Kwame Boateng", "talk", "advanced",
      {"mcp": 2, "prod": 2}, [], ["Least-privilege tokens for agents", "Human approval for risky actions", "Prompt injection through tools"],
      "What can go wrong when an agent holds the keys, and how to limit it."),
     ("d3-lunch", 3, "12:00", 60, "atrium", "Lunch & Tool Builders Meetup", "Conference team", "networking", "beginner",
@@ -285,10 +298,10 @@ AGENDA = [
      {"evals": 3}, EVALS_CHECKS,
      ["Build an eval set from real traces", "Write an LLM-as-judge grader", "Compare two agent versions"],
      "A repeat of opening day's sold-out workshop for everyone who couldn't get a seat."),
-    ("d3-panel", 3, "14:45", 45, "hall-a", "Panel: Will MCP Be the USB-C of AI?", "Anika Sharma (moderator)", "panel", "beginner",
+    ("d3-panel", 3, "15:00", 45, "hall-a", "Panel: Will MCP Be the USB-C of AI?", "Anika Sharma (moderator)", "panel", "beginner",
      {"mcp": 2}, [], ["Where standard tool protocols help and hurt", "What's missing today"],
      "Platform, startup and open-source maintainers debate the future of agent tools."),
-    ("d3-oh", 3, "15:45", 60, "atrium", "MCP Office Hours", "Grace Liu & Mateo Silva", "office hours", "intermediate",
+    ("d3-oh", 3, "16:00", 60, "atrium", "MCP Office Hours", "Grace Liu & Mateo Silva", "office hours", "intermediate",
      {"mcp": 2}, [], ["Debug your MCP server with the instructors"], "Bring your server, your errors and your questions."),
     ("d3-night", 3, "18:00", 120, "atrium", "Builders' Night: Demos & Drinks", "Conference team", "networking", "beginner",
      {}, [], ["Open demo stage", "Meet other attendees"], "An evening of demos, food and conversation."),
@@ -305,10 +318,10 @@ AGENDA = [
      {"prod": 3}, ["git", "docker"],
      ["Write a small, secure Dockerfile", "Pass secrets safely", "Deploy and roll back"],
      "Package an agent so it runs the same on your laptop and in the cloud."),
-    ("d4-guardrails", 4, "10:00", 40, "room-b", "Guardrails Without the Guesswork", "Bianca Rossi", "talk", "intermediate",
+    ("d4-guardrails", 4, "10:00", 45, "room-b", "Guardrails Without the Guesswork", "Bianca Rossi", "talk", "intermediate",
      {"prod": 2, "evals": 1}, [], ["Input and output checks that matter", "Measuring guardrail false positives"],
      "Guardrails are features too. Test them like features."),
-    ("d4-caching", 4, "11:00", 40, "room-c", "Prompt Caching and Other Cost Cuts", "Ethan Park", "talk", "intermediate",
+    ("d4-caching", 4, "11:00", 45, "room-c", "Prompt Caching and Other Cost Cuts", "Ethan Park", "talk", "intermediate",
      {"prod": 2, "prompting": 1}, [], ["Prompt caching explained", "Batching and smaller models", "Measuring savings"],
      "Cut your model bill without making answers worse."),
     ("d4-lunch", 4, "12:00", 60, "atrium", "Lunch & Hiring Tables", "Conference team", "networking", "beginner",
@@ -321,12 +334,12 @@ AGENDA = [
      {"evals": 2, "prod": 1}, ["runtime", "deps-core"],
      ["Design adversarial test cases", "Score jailbreak resistance", "Patch the weakest spot"],
      "Opening day's red-teaming workshop, extended with a patching exercise."),
-    ("d4-incident", 4, "14:45", 40, "room-b", "Incident Review: When the Agent Went Rogue", "Lucas Moreau", "talk", "beginner",
+    ("d4-incident", 4, "15:00", 45, "room-b", "Incident Review: When the Agent Went Rogue", "Lucas Moreau", "talk", "beginner",
      {"prod": 2}, [], ["A real incident timeline, step by step", "The fixes that stuck"],
      "A blameless walkthrough of an agent incident and what changed after it."),
-    ("d4-oh", 4, "15:30", 60, "atrium", "Production Office Hours", "Hannah Kim & Arash Tehrani", "office hours", "intermediate",
+    ("d4-oh", 4, "16:00", 60, "atrium", "Production Office Hours", "Hannah Kim & Arash Tehrani", "office hours", "intermediate",
      {"prod": 2}, [], ["Review your deployment plan", "Ask about scaling and monitoring"], "Bring your architecture diagram."),
-    ("d4-lightning", 4, "16:30", 45, "hall-a", "Lightning Talks: Shipped It", "Community speakers", "talk", "beginner",
+    ("d4-lightning", 4, "17:00", 45, "hall-a", "Lightning Talks: Shipped It", "Community speakers", "talk", "beginner",
      {"prod": 1}, [], ["Short launch stories from attendees"], "Five minutes each on something that actually shipped."),
 
     # ---- Day 5: prompting & hack day
@@ -337,14 +350,14 @@ AGENDA = [
      {"prompting": 3}, ["runtime", "deps-core", "deps-llm"],
      ["Write and version prompts as files", "Test prompts on a fixed set", "Compare versions side by side"],
      "Replace prompt guesswork with a small, repeatable workflow."),
-    ("d5-context", 5, "10:00", 40, "room-b", "Context Engineering for Long-Running Agents", "Yusuf Demir", "talk", "advanced",
+    ("d5-context", 5, "10:00", 45, "room-b", "Context Engineering for Long-Running Agents", "Yusuf Demir", "talk", "advanced",
      {"prompting": 3, "prod": 1}, [], ["What to keep, summarize or drop", "Memory patterns that scale"],
      "Agents that run for hours need a plan for what they remember."),
     ("d5-hack", 5, "10:00", 300, "atrium", "Hack Sprint: Build Something in Five Hours", "Conference team", "hackathon", "beginner",
      {"prod": 2, "mcp": 1, "rag": 1}, ["runtime", "git"],
      ["Build a working project with a team", "Demo it on the main stage"],
-     "Form a team, use anything you learned this week, and demo at 3:30."),
-    ("d5-open", 5, "11:00", 40, "room-c", "Small Models, Big Wins: When to Go Open", "Daniel Asante", "talk", "intermediate",
+     "Form a team, use anything you learned this week, and demo at 3 PM."),
+    ("d5-open", 5, "11:00", 45, "room-c", "Small Models, Big Wins: When to Go Open", "Daniel Asante", "talk", "intermediate",
      {"prod": 2, "prompting": 1}, [], ["When a small open model is enough", "Fine-tuning versus prompting"],
      "How to decide whether you need the biggest model at all."),
     ("d5-lunch", 5, "12:00", 60, "room-b", "Lunch & Team Matching", "Conference team", "networking", "beginner",
@@ -353,7 +366,7 @@ AGENDA = [
      {"prompting": 2, "evals": 2}, ["runtime", "deps-core", "deps-evals"],
      ["Build a golden dataset", "Grade prompt versions automatically", "Decide what ships"],
      "The evaluation habit that makes prompt changes safe."),
-    ("d5-demos", 5, "15:30", 90, "hall-a", "Hack Sprint Demos & Awards", "Conference team", "talk", "beginner",
+    ("d5-demos", 5, "15:00", 90, "hall-a", "Hack Sprint Demos & Awards", "Conference team", "talk", "beginner",
      {"prod": 1}, [], ["Three-minute demos from every team"], "See what everyone built and cheer them on."),
     ("d5-close", 5, "17:00", 30, "hall-a", "Closing Keynote: What We Learned This Week", "Dana Okafor", "talk", "beginner",
      {"evals": 1, "prod": 1}, [], ["The week's big ideas in thirty minutes"], "A look back at the week and what to try next."),

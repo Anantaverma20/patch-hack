@@ -429,3 +429,7 @@ label.field { display: block; font-weight: 600; font-size: 14px; margin: 18px 0 
 .pick-day + .pick-day { margin-top: 12px; }
 .pick-day-label { margin: 6px 0 8px; }
 .past-card { opacity: .6; }
+.chip:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.clash-note { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; padding: 9px 12px; border-radius: 12px;
+  background: var(--amber-soft); color: var(--ink-2); }
+.clash-note svg { flex: none; margin-top: 2px; color: var(--amber); }

@@ -288,6 +288,13 @@ def plan(body: dict = Body(...)):
     if body.get("action") == "remove":
         run("MATCH (a:Attendee {id:$aid})-[p:PLANS]->(s:Session {id:$sid}) DELETE p", {"aid": aid, "sid": sid})
     else:
+        clash = one(
+            "MATCH (a:Attendee {id:$aid})-[:PLANS]->(p:Session), (s:Session {id:$sid}) "
+            "WHERE p.id <> s.id AND p.status <> 'cancelled' AND p.start < s.end AND s.start < p.end "
+            "RETURN p.id AS id, p.title AS title, p.start AS start LIMIT 1", {"aid": aid, "sid": sid})
+        if clash:
+            raise HTTPException(409, {"message": f"Overlaps “{clash['title']}” ({seed.fmt_local(clash['start'])}) in your plan.",
+                                      "clash": clash["id"]})
         run("MATCH (a:Attendee {id:$aid}), (s:Session {id:$sid}) WHERE NOT (a)-[:PLANS]->(s) "
             "CREATE (a)-[:PLANS {at:$now}]->(s)", {"aid": aid, "sid": sid, "now": now_ms()})
     bump()
