@@ -5,7 +5,8 @@ description: Prepare and verify this laptop for the attendee's Future / Forward 
 
 # Unstuck workshop setup
 
-Organizer-approved setup package (agent-evals-setup 1.2.0). You prepare the environment;
+Organizer-approved setup packages for the workshops in the attendee's plan, across the whole
+conference week. You prepare the environment;
 `check.py` decides whether it is ready. **Never tell the attendee they are ready unless
 `check.py` printed "Your environment passed this workshop's checks."**
 
@@ -22,7 +23,8 @@ The attendee gives you two values from their Get Ready page: `SERVER` and `TOKEN
 4. Install packages: `python check.py --server SERVER --token TOKEN --install`
 5. Run the checks: `python check.py --server SERVER --token TOKEN`
 6. If a check fails, fix only setup problems (runtime, packages, sign-in, endpoint), using
-   the error detail. Do not change or complete the workshop exercise itself. Re-run step 5.
+   the error detail. For Git, Node.js or Docker, tell the attendee what to install or start
+   (the failing line says which) instead of installing system software yourself. Do not change or complete the workshop exercise itself. Re-run step 5.
    Stop after two attempts at the same failure and tell the attendee to press **Request help**
    on their Get Ready page, quoting the failing line.
 7. Show the attendee the results table and ask: *"Send these results to Unstuck? Only check

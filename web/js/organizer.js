@@ -1,7 +1,15 @@
 import { useState } from "../vendor/preact-htm.js";
 import {
-  CountUp, Header, Icon, Modal, SessionStatus, Skeleton, ago, api, cap, fmtTime, html, rel, toast, useData,
+  CountUp, DayTabs, Header, Icon, Modal, SessionStatus, Skeleton, TZ, ago, api, cap, dayName, fmtTime, fmtWhen, html, rel, serverNow,
+  toast, useData,
 } from "./core.js";
+
+// The first conference day that still has something ahead (the last day once all are over).
+const currentDay = (sessions, now) => {
+  const next = sessions.filter((s) => s.end > now).sort((a, b) => a.start - b.start)[0];
+  return next ? next.day ?? 0 : Math.max(0, ...sessions.map((s) => s.day ?? 0));
+};
+const countByDay = (sessions) => sessions.reduce((m, s) => ({ ...m, [s.day ?? 0]: (m[s.day ?? 0] || 0) + 1 }), {});
 
 // ================================================================ Overview
 
@@ -33,7 +41,7 @@ export function Overview() {
     <div class="grid2 section" style="align-items:start">
       <div class="card rise" style="--i:5"><h2>Up next</h2>
         <table class="table"><tbody>${upcoming.map((x) => html`<tr>
-          <td style="width:80px"><b>${fmtTime(x.start)}</b></td>
+          <td style="width:96px;white-space:nowrap"><b>${fmtWhen(x.start, now)}</b></td>
           <td>${x.title}<div class="muted small">${x.room.name} · ${x.planned} planned${x.ready != null ? ` · ${x.ready} ready` : ""}</div></td>
           <td style="text-align:right"><${SessionStatus} s=${x} /></td></tr>`)}</tbody></table></div>
       <div class="card rise" style="--i:6"><h2>Needs attention</h2>
@@ -51,8 +59,11 @@ export function OrgSessions({ conf }) {
   const [data] = useData("/api/org/sessions");
   const [moving, setMoving] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [pickedDay, setDay] = useState(null);
   if (!data) return html`<${Header} eyebrow="Sessions" title="Sessions & live updates." /><${Skeleton} />`;
   const now = data.now;
+  const c = conf.conference;
+  const day = pickedDay ?? currentDay(data.sessions, now);
   const set = async (s, status, room) => {
     await api(`/api/org/sessions/${s.id}/status`, { status, room });
     setMoving(null);
@@ -61,9 +72,11 @@ export function OrgSessions({ conf }) {
   return html`
     <${Header} eyebrow="Sessions" title="Sessions & live updates." lede="Publish room changes and availability. Attendees with the session in their day see it right away, with alternatives."
       right=${html`<button class="btn primary" onClick=${() => setAdding(true)}><${Icon} n="plus" s=${16} /> Add session</button>`} />
-    ${data.sessions.filter((s) => s.end > now - 30 * 60e3).map((s, i) => html`<div class="card hover rise" style=${`--i:${Math.min(i, 8)}`} key=${s.id}>
+    <${DayTabs} c=${c} value=${day} onChange=${setDay} counts=${countByDay(data.sessions)} />
+    ${c?.themes?.[day] && html`<p class="muted small" style="margin:-6px 0 14px">${c.themes[day]}</p>`}
+    ${data.sessions.filter((s) => (s.day ?? 0) === day).map((s, i) => html`<div class=${`card hover rise ${s.end < now ? "past-card" : ""}`} style=${`--i:${Math.min(i, 8)}`} key=${s.id}>
       <div class="between" style="align-items:flex-start;flex-wrap:wrap">
-        <div style="min-width:0;flex:1">
+        <div style="min-width:min(100%, 280px);flex:1">
           <div class="row"><h3 style="font-size:17px">${s.title}</h3><${SessionStatus} s=${s} /></div>
           <div class="muted small" style="margin-top:4px">${fmtTime(s.start)}–${fmtTime(s.end)} (${rel(s.start, now)}) · ${s.room.name} · ${s.speaker} · ${cap(s.format)}</div>
           <div class="row small" style="margin-top:10px">
@@ -83,13 +96,21 @@ export function OrgSessions({ conf }) {
       ${moving === s.id && html`<div class="evidence fade row"><span class="small">Move to</span>
         ${conf.rooms.filter((r) => r.id !== s.room.id).map((r) => html`<button class="chip" onClick=${() => set(s, "moved", r.id)}>${r.name}</button>`)}</div>`}
     </div>`)}
-    ${adding && html`<${AddSession} conf=${conf} onClose=${() => setAdding(false)} />`}`;
+    ${adding && html`<${AddSession} conf=${conf} day=${day} onClose=${() => setAdding(false)} />`}`;
 }
 
-function AddSession({ conf, onClose }) {
-  const [f, setF] = useState({ title: "", speaker: "", goal: "evals", depth: 2, level: "intermediate", format: "workshop", startIn: 45, duration: 45, room: "room-c", requires: ["runtime"], capacity: 40, outcomes: [""] });
+function AddSession({ conf, day, onClose }) {
+  // Default: 45 minutes from now on today's tab, 10:00 on any later day (venue time).
+  const soon = new Date(Math.ceil((serverNow() + 45 * 60e3) / 300e3) * 300e3);
+  const soonHHMM = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit" }).format(soon);
+  const [f, setF] = useState({ title: "", speaker: "", goal: "evals", depth: 2, level: "intermediate", format: "workshop", day,
+    time: day === 0 ? soonHHMM : "10:00", duration: 45, room: "room-c", requires: ["runtime"], capacity: 40, outcomes: [""] });
   const up = (k) => (e) => setF({ ...f, [k]: e.target.value });
-  const save = async () => { await api("/api/org/sessions", f); toast({ title: "Session published", body: f.title }); onClose(); };
+  const save = async () => {
+    try { await api("/api/org/sessions", { ...f, day: Number(f.day) }); }
+    catch (e) { toast({ title: "Couldn't publish the session", body: "Check the day and start time.", kind: "warn" }); return; }
+    toast({ title: "Session published", body: `${f.title} · ${dayName(conf.conference, Number(f.day))} ${f.time}` }); onClose();
+  };
   return html`<${Modal} onClose=${onClose}>
     <h2>Add a session</h2>
     <div class="grid2">
@@ -97,7 +118,9 @@ function AddSession({ conf, onClose }) {
       <div><label class="field">Speaker</label><input class="input" value=${f.speaker} onInput=${up("speaker")} /></div>
       <div><label class="field">Covers goal</label><select class="input" value=${f.goal} onChange=${up("goal")}>${conf.goals.map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select></div>
       <div><label class="field">Room</label><select class="input" value=${f.room} onChange=${up("room")}>${conf.rooms.map((r) => html`<option value=${r.id}>${r.name}</option>`)}</select></div>
-      <div><label class="field">Starts in (min)</label><input class="input" type="number" value=${f.startIn} onInput=${up("startIn")} /></div>
+      <div><label class="field">Day</label><select class="input" value=${f.day} onChange=${up("day")}>
+        ${(conf.conference.days || []).map((_, i) => html`<option value=${i}>${dayName(conf.conference, i)}</option>`)}</select></div>
+      <div><label class="field">Starts at (venue time)</label><input class="input" type="time" value=${f.time} onInput=${up("time")} /></div>
       <div><label class="field">Level</label><select class="input" value=${f.level} onChange=${up("level")}><option>beginner</option><option>intermediate</option><option>advanced</option></select></div>
     </div>
     <label class="field">Practical outcome</label><input class="input" value=${f.outcomes[0]} onInput=${(e) => setF({ ...f, outcomes: [e.target.value] })} />
@@ -110,16 +133,22 @@ function AddSession({ conf, onClose }) {
 
 // ================================================================ Readiness
 
-export function Readiness() {
+export function Readiness({ conf }) {
   const [data] = useData("/api/org/readiness");
   const [busy, setBusy] = useState(null);
+  const [pickedDay, setDay] = useState(null);
   if (!data) return html`<${Header} eyebrow="Readiness" title="Who's ready to build?" /><${Skeleton} />`;
   const act = async (p, a) => { setBusy(p.id + a); await api(`/api/org/packages/${p.id}/${a}`); setBusy(null); };
+  const now = serverNow();
+  const withEnd = data.sessions.map((s) => ({ ...s, end: s.start + 3600e3 }));
+  const day = pickedDay ?? currentDay(withEnd, now);
   return html`
-    <${Header} eyebrow="Readiness" title="Who's ready to build?" lede="Aggregate results from attendees' setup checks, shared failures, and the setup packages you publish." />
+    <${Header} eyebrow="Readiness" title="Who's ready to build?" lede="Aggregate results from attendees' setup checks, shared failures, and the setup packages you publish. Fix setup problems days before a workshop, not at the front of the room." />
+    <${DayTabs} c=${conf?.conference} value=${day} onChange=${setDay} counts=${countByDay(data.sessions)} />
     <div class="grid2" style="align-items:start">
-      ${data.sessions.map((s, i) => html`<div class="card rise" style=${`--i:${i}`}>
-        <div class="between"><h3>${s.title}</h3><span class="muted small">${fmtTime(s.start)}</span></div>
+      ${data.sessions.filter((s) => (s.day ?? 0) === day).length === 0 && html`<div class="soft">No hands-on sessions with setup checks this day.</div>`}
+      ${data.sessions.filter((s) => (s.day ?? 0) === day).map((s, i) => html`<div class="card rise" style=${`--i:${i}`} key=${s.id}>
+        <div class="between"><h3>${s.title}</h3><span class="muted small" style="white-space:nowrap">${fmtTime(s.start)}</span></div>
         <table class="table" style="margin-top:10px"><tbody>${s.checks.map((c) => html`<tr>
           <td>${c.name}</td>
           <td style="width:42%"><div class="meter"><i class="p" style=${`width:${c.planned ? (c.pass / c.planned) * 100 : 0}%`}></i><i class="f" style=${`width:${c.planned ? (c.fail / c.planned) * 100 : 0}%`}></i></div></td>

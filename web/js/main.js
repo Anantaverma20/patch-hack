@@ -34,7 +34,7 @@ function App() {
   const [rescue, setRescue] = useState(null);
   const [ring, setRing] = useState(false);
   useEffect(() => {
-    const f = () => { setRoute(parseHash()); window.scrollTo({ top: 0, behavior: "smooth" }); };
+    const f = () => { setRoute(parseHash()); setRescue(null); window.scrollTo({ top: 0, behavior: "smooth" }); };
     addEventListener("hashchange", f); return () => removeEventListener("hashchange", f);
   }, []);
   const [conf] = useData("/api/conference");
@@ -81,13 +81,13 @@ function App() {
   if (role === "attendee") {
     if (!me || !conf) body = null;
     else if (page === "join") body = html`<${Join} conf=${conf} />`;
-    else if (page === "sessions") body = html`<${Sessions} me=${me} query=${query} />`;
+    else if (page === "sessions") body = html`<${Sessions} me=${me} conf=${conf} query=${query} />`;
     else if (page === "ready") body = html`<${GetReady} me=${me} />`;
     else if (page === "help") body = html`<${Help} me=${me} query=${query} />`;
-    else body = html`<${MyDay} me=${me} openRescue=${setRescue} />`;
+    else body = html`<${MyDay} me=${me} conf=${conf} openRescue=${setRescue} />`;
   } else if (conf) {
     if (page === "sessions") body = html`<${OrgSessions} conf=${conf} />`;
-    else if (page === "readiness") body = html`<${Readiness} />`;
+    else if (page === "readiness") body = html`<${Readiness} conf=${conf} />`;
     else if (page === "help") body = html`<${HelpQueue} />`;
     else body = html`<${Overview} />`;
   }

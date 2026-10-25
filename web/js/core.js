@@ -58,8 +58,40 @@ export function useNow(ms = 15000) {
 
 // ---------------------------------------------------------------- formatting
 
-export const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+// Everything is shown in venue time (San Francisco), wherever the viewer is.
+export const TZ = "America/Los_Angeles";
+const F = {
+  time: new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit" }),
+  day: new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric" }),
+  key: new Intl.DateTimeFormat("en-CA", { timeZone: TZ }),
+  hour: new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" }),
+};
+export const fmtTime = (ms) => F.time.format(ms);
+export const fmtDay = (ms) => F.day.format(ms);
+export const dayKey = (ms) => F.key.format(ms);
+export const localHour = (ms) => Number(F.hour.format(ms)) % 24;
+const dayDiff = (a, b) => Math.round((Date.parse(dayKey(a)) - Date.parse(dayKey(b))) / 864e5);
+export const fmtWhen = (ms, now = serverNow()) => (dayDiff(ms, now) === 0 ? fmtTime(ms) : `${fmtDay(ms)}, ${fmtTime(ms)}`);
+
+// "Today", "Tomorrow" or "Tue, Oct 27" for conference day i.
+export function dayName(c, i) {
+  const key = c?.dayKeys?.[i];
+  if (!key) return `Day ${i + 1}`;
+  const d = Math.round((Date.parse(key) - Date.parse(dayKey(serverNow()))) / 864e5);
+  return d === 0 ? "Today" : d === 1 ? "Tomorrow" : d === -1 ? "Yesterday" : c.days[i];
+}
+
+export function DayTabs({ c, value, onChange, counts }) {
+  return html`<div class="chips day-tabs" role="tablist" aria-label="Conference day">${(c?.days || []).map((_, i) => html`
+    <button role="tab" aria-selected=${value === i} class=${`chip ${value === i ? "on" : ""}`} onClick=${() => onChange(i)}>
+      ${dayName(c, i)}${counts && html` <span class="small" style="opacity:.65">· ${counts[i] || 0}</span>`}</button>`)}</div>`;
+}
+
 export function rel(ms, now = serverNow()) {
+  const d = dayDiff(ms, now);
+  if (d !== 0 && Math.abs(ms - now) >= 6 * 3600e3) {
+    return d === 1 ? "tomorrow" : d === -1 ? "yesterday" : d > 0 ? `in ${d} days` : `${-d} days ago`;
+  }
   const m = Math.round((ms - now) / 60000);
   if (m === 0) return "now";
   if (m > 0) return m >= 60 ? `in ${Math.floor(m / 60)} h ${m % 60} min` : `in ${m} min`;
@@ -68,7 +100,7 @@ export function rel(ms, now = serverNow()) {
 }
 export const ago = (ms) => {
   const m = Math.max(0, Math.round((serverNow() - ms) / 60000));
-  return m === 0 ? "just now" : m < 60 ? `${m} min ago` : `${Math.floor(m / 60)} h ago`;
+  return m === 0 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.floor(m / 60)} h ago` : `${Math.floor(m / 1440)} d ago`;
 };
 export const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 

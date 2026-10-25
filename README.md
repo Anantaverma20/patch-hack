@@ -11,6 +11,14 @@ Unstuck helps conference attendees **get ready**, **get into the right session**
 | During | Room changes, full or cancelled sessions trigger **Plan Rescue**: feasible alternatives by goal, time, walk and setup. |
 | Inside the session | "I'm stuck" reports are triaged and grouped by shared cause. The organizer approves one fix for everyone. |
 
+The demo conference, **Future / Forward**, runs six days: today plus the next five, in San Francisco time. It has 63
+sessions (keynotes, 22 hands-on workshops, talks, panels, office hours, networking and a hack sprint) across six goals:
+agent evals, RAG, knowledge graphs, MCP tools, shipping to production and prompting. Each workshop's setup is real and
+`check.py` verifies it on the attendee's laptop: Python version, Git, Node.js 18+, Docker running, and the packages the
+workshop uses (e.g. `openai`, `scikit-learn`, `falkordb`, `mcp`, `fastapi`, `pandas`). Today's block is relative to
+the moment of reset so the stage demo always starts live; days 2-6 follow a normal 9:00-17:30 agenda. When the week
+is over, the server starts a fresh one automatically.
+
 ## Why FalkorDB
 
 One graph holds attendees, goals, sessions, rooms, walking routes, required checks, verified results, environment facts, help reports, causes and fixes. The planner, the setup skill and the triage step all share it.
@@ -73,7 +81,7 @@ Optional: set `OPENAI_API_KEY` (and `OPENAI_MODEL`) to let an OpenAI model refin
 - Open the live site a minute early: Render's free plan sleeps after 15 idle minutes and takes ~40 s to wake.
 - Start TrueForge in your own terminal (`npx @truefoundry/trueforge@latest`) and open http://localhost:8790 → **Agents** → **unstuck-organizer-copilot** → **Try**.
 - Put the attendee view (phone width), the organizer Help queue and the TrueForge chat side by side.
-- Press **Reset demo**. The schedule is relative to the reset time.
+- Press **Reset demo**. Today's sessions are relative to the reset time; the rest of the week follows.
 
 **Run**
 1. **Join** → *Use sample attendee* → **Build my day**. The goal is evaluating AI agents.
