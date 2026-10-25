@@ -71,14 +71,15 @@ export const fmtDay = (ms) => F.day.format(ms);
 export const dayKey = (ms) => F.key.format(ms);
 export const localHour = (ms) => Number(F.hour.format(ms)) % 24;
 const dayDiff = (a, b) => Math.round((Date.parse(dayKey(a)) - Date.parse(dayKey(b))) / 864e5);
-export const fmtWhen = (ms, now = serverNow()) => (dayDiff(ms, now) === 0 ? fmtTime(ms) : `${fmtDay(ms)}, ${fmtTime(ms)}`);
+export const fmtWhen = (ms) => `${fmtDay(ms)} · ${fmtTime(ms)}`;
+export const overlaps = (a, b) => a.id !== b.id && a.start < b.end && b.start < a.end;
 
 // "Today", "Tomorrow" or "Tue, Oct 27" for conference day i.
 export function dayName(c, i) {
   const key = c?.dayKeys?.[i];
   if (!key) return `Day ${i + 1}`;
   const d = Math.round((Date.parse(key) - Date.parse(dayKey(serverNow()))) / 864e5);
-  return d === 0 ? "Today" : d === 1 ? "Tomorrow" : d === -1 ? "Yesterday" : c.days[i];
+  return d === 0 ? `Today · ${c.days[i]}` : d === 1 ? `Tomorrow · ${c.days[i]}` : c.days[i];
 }
 
 export function DayTabs({ c, value, onChange, counts }) {

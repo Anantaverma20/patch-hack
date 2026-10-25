@@ -41,7 +41,7 @@ export function Overview() {
     <div class="grid2 section" style="align-items:start">
       <div class="card rise" style="--i:5"><h2>Up next</h2>
         <table class="table"><tbody>${upcoming.map((x) => html`<tr>
-          <td style="width:96px;white-space:nowrap"><b>${fmtWhen(x.start, now)}</b></td>
+          <td style="width:150px;white-space:nowrap"><b>${fmtWhen(x.start)}</b></td>
           <td>${x.title}<div class="muted small">${x.room.name} · ${x.planned} planned${x.ready != null ? ` · ${x.ready} ready` : ""}</div></td>
           <td style="text-align:right"><${SessionStatus} s=${x} /></td></tr>`)}</tbody></table></div>
       <div class="card rise" style="--i:6"><h2>Needs attention</h2>
@@ -78,7 +78,7 @@ export function OrgSessions({ conf }) {
       <div class="between" style="align-items:flex-start;flex-wrap:wrap">
         <div style="min-width:min(100%, 280px);flex:1">
           <div class="row"><h3 style="font-size:17px">${s.title}</h3><${SessionStatus} s=${s} /></div>
-          <div class="muted small" style="margin-top:4px">${fmtTime(s.start)}–${fmtTime(s.end)} (${rel(s.start, now)}) · ${s.room.name} · ${s.speaker} · ${cap(s.format)}</div>
+          <div class="muted small" style="margin-top:4px">${fmtWhen(s.start)}–${fmtTime(s.end)} (${rel(s.start, now)}) · ${s.room.name} · ${s.speaker} · ${cap(s.format)}</div>
           <div class="row small" style="margin-top:10px">
             <span class="pill">${s.planned} planned · ${s.taken}/${s.capacity} seats</span>
             ${s.requires.length > 0 && html`<span class="pill">${s.ready ?? 0} of ${s.planned} setup-ready</span>`}
@@ -151,7 +151,7 @@ export function Readiness({ conf }) {
     <div class="grid2" style="align-items:start">
       ${data.sessions.filter((s) => (s.day ?? 0) === day).length === 0 && html`<div class="soft">No hands-on sessions with setup checks this day.</div>`}
       ${data.sessions.filter((s) => (s.day ?? 0) === day).map((s, i) => html`<div class="card rise" style=${`--i:${i}`} key=${s.id}>
-        <div class="between"><h3>${s.title}</h3><span class="muted small" style="white-space:nowrap">${fmtTime(s.start)}</span></div>
+        <div class="between"><h3>${s.title}</h3><span class="muted small" style="white-space:nowrap">${fmtWhen(s.start)}</span></div>
         <table class="table" style="margin-top:10px"><tbody>${s.checks.map((c) => html`<tr>
           <td>${c.name}</td>
           <td style="width:42%"><div class="meter"><i class="p" style=${`width:${c.planned ? (c.pass / c.planned) * 100 : 0}%`}></i><i class="f" style=${`width:${c.planned ? (c.fail / c.planned) * 100 : 0}%`}></i></div></td>

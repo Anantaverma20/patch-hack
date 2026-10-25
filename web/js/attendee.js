@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "../vendor/preact-htm.js";
 import {
-  AID, Copy, Drawer, Header, Icon, ReadyPill, SessionStatus, Skeleton, ago, api, cap, dayName, fmtTime, fmtWhen, html, localHour, rel,
+  AID, Copy, Drawer, Header, Icon, ReadyPill, SessionStatus, Skeleton, ago, api, cap, dayName, fmtTime, fmtWhen, html, localHour, overlaps, rel,
   serverNow, toast, useData, useNow,
 } from "./core.js";
 
@@ -69,9 +69,13 @@ export function Join({ conf }) {
       <label class="field">Hands-on workshops you'd like to join <span class="muted small">(optional; talks are added for your goals)</span></label>
       ${byDay(pickable).map((g) => html`<div class="pick-day">
         <div class="small muted pick-day-label">${dayName(c, g.day)}${c?.themes?.[g.day] ? ` · ${c.themes[g.day]}` : ""}</div>
-        <div class="chips">${g.items.map((s) => html`
-          <button class=${`chip ${interests.includes(s.id) ? "on" : ""}`} onClick=${() => toggle(interests, setInterests, s.id)}>
-            ${s.title} <span class="muted small">· ${fmtTime(s.start)}</span></button>`)}</div></div>`)}
+        <div class="chips">${g.items.map((s) => {
+          const on = interests.includes(s.id);
+          const clash = !on && pickable.find((p) => interests.includes(p.id) && overlaps(p, s));
+          return html`<button class=${`chip ${on ? "on" : ""}`} disabled=${!!clash}
+            title=${clash ? `Same time as “${clash.title}”. Unpick it first.` : ""} onClick=${() => toggle(interests, setInterests, s.id)}>
+            ${s.title} <span class="muted small">· ${fmtTime(s.start)}–${fmtTime(s.end)}${clash ? " · same time as your pick" : ""}</span></button>`;
+        })}</div></div>`)}
 
       <label class="field">Preferences <span class="muted small">(optional)</span></label>
       <div class="row">
@@ -135,7 +139,7 @@ function NextUp({ s, openRescue, now }) {
     </div>
     <h2 style="position:relative">${s.title}</h2>
     <div class="meta" style="position:relative">
-      <span><${Icon} n="clock" s=${16} /> ${fmtWhen(s.start, now)}–${fmtTime(s.end)}</span>
+      <span><${Icon} n="clock" s=${16} /> ${fmtWhen(s.start)}–${fmtTime(s.end)}</span>
       <span><${Icon} n="pin" s=${16} /> ${s.room.name}</span>
       <span><${Icon} n="users" s=${16} /> ${s.speaker}</span>
       ${s.status !== "open" && html`<${SessionStatus} s=${s} />`}
@@ -241,27 +245,43 @@ export function Sessions({ me, conf, query }) {
       ${byDay(list).map((g) => html`<div key=${g.day}>
         <h2 class="day-title rise">${dayName(c, g.day)}<span class="muted small">${c?.themes?.[g.day] ? ` · ${c.themes[g.day]}` : ""} · ${g.items.length} session${g.items.length > 1 ? "s" : ""}</span></h2>
         ${g.items.map((s) => html`<${SessionCard} key=${s.id} s=${s} i=${n++} now=${now} goals=${goals} myLevel=${me?.attendee?.level}
+          clash=${!s.inPlan && data.sessions.find((p) => p.inPlan && p.status !== "cancelled" && overlaps(p, s))}
           open=${open === s.id} onToggle=${() => setOpen(open === s.id ? null : s.id)} />`)}</div>`)}
     </div>`;
 }
 
-function SessionCard({ s, i, now, open, onToggle, myLevel }) {
+function SessionCard({ s, i, now, open, onToggle, myLevel, clash }) {
   const [detail] = useData(open ? `/api/session/${s.id}` : null);
   const [busy, setBusy] = useState(false);
   const fit = s.fit[0];
-  const toggle = async () => { setBusy(true); await api("/api/plan", { aid: AID, sid: s.id, action: s.inPlan ? "remove" : "add" }); setBusy(false); };
+  const toggle = async () => {
+    setBusy(true);
+    try { await api("/api/plan", { aid: AID, sid: s.id, action: s.inPlan ? "remove" : "add" }); }
+    catch (e) { toast({ title: "Can't add this session", body: "It overlaps another session in your plan.", kind: "warn" }); }
+    setBusy(false);
+  };
+  const swap = async () => {
+    setBusy(true);
+    await api("/api/plan", { aid: AID, sid: clash.id, action: "remove" });
+    try { await api("/api/plan", { aid: AID, sid: s.id }); toast({ title: "Swapped", body: `“${s.title}” replaces “${clash.title}”.` }); }
+    catch (e) { await api("/api/plan", { aid: AID, sid: clash.id }); toast({ title: "Can't swap", body: "It overlaps another session in your plan too.", kind: "warn" }); }
+    setBusy(false);
+  };
   return html`<div class="card hover rise" style=${`--i:${Math.min(i, 8)}`}>
     <div class="between" style="align-items:flex-start">
       <div style="min-width:0">
         <div class="row"><h3 style="font-size:17px">${s.title}</h3><${SessionStatus} s=${s} />${s.inPlan && html`<span class="pill lime">In your day</span>`}</div>
         <div class="muted small" style="margin-top:3px">${s.speaker} · ${cap(s.format)}</div>
       </div>
-      <button class=${`btn sm ${s.inPlan ? "" : "primary"}`} disabled=${busy || s.status === "cancelled" || (s.status === "full" && !s.inPlan)} onClick=${toggle}>
-        ${s.inPlan ? "Remove" : html`<${Icon} n="plus" s=${15} /> Add to my day`}</button>
+      ${clash ? html`<button class="btn sm" disabled=${busy || s.status !== "open"} onClick=${swap}
+          title=${`Remove “${clash.title}” and add this one`}><${Icon} n="refresh" s=${15} /> Swap</button>`
+        : html`<button class=${`btn sm ${s.inPlan ? "" : "primary"}`} disabled=${busy || s.status === "cancelled" || (s.status === "full" && !s.inPlan)} onClick=${toggle}>
+          ${s.inPlan ? "Remove" : html`<${Icon} n="plus" s=${15} /> Add to my day`}</button>`}
     </div>
+    ${clash && html`<div class="clash-note small"><${Icon} n="alert" s=${14} /> Same time as “${clash.title}” (${fmtTime(clash.start)}–${fmtTime(clash.end)}) in your plan. You can only be in one place, so swap if you'd rather go to this one.</div>`}
     <ul style="margin:12px 0;padding-left:18px;color:var(--ink-2)">${s.outcomes.slice(0, 2).map((o) => html`<li>${o}</li>`)}</ul>
     <div class="row small">
-      <span class="pill"><${Icon} n="clock" s=${13} /> ${fmtWhen(s.start, now)}–${fmtTime(s.end)} · ${rel(s.start, now)}</span>
+      <span class="pill"><${Icon} n="clock" s=${13} /> ${fmtWhen(s.start)}–${fmtTime(s.end)} · ${rel(s.start, now)}</span>
       <span class="pill"><${Icon} n="pin" s=${13} /> ${s.room.name}</span>
       <span class="pill">Recommended: ${cap(s.level)}${myLevel && s.level !== myLevel ? ` · you: ${cap(myLevel)}` : ""}</span>
       <span class=${`pill ${s.status === "full" ? "full" : s.seats < 5 ? "amber" : ""}`}>
