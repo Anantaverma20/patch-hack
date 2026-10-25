@@ -507,8 +507,8 @@ def add_session(body: dict = Body(...)):
             if not (0 <= day < seed.DAYS and re.fullmatch(r"\d{1,2}:\d{2}", hhmm)):
                 raise ValueError
             start = seed.at(day0, day, hhmm)
-        except ValueError:
-            raise HTTPException(400, f"day must be 0-{seed.DAYS - 1} and time HH:MM")
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"day must be 0-{seed.DAYS - 1} and time HH:MM") from None
     else:
         start = now + int(body.get("startIn", 30)) * MIN
         day = min(max((seed.local_date(start) - day0).days, 0), seed.DAYS - 1)
@@ -516,7 +516,12 @@ def add_session(body: dict = Body(...)):
              "level": body.get("level", "intermediate"), "start": start, "end": start + int(body.get("duration", 45)) * MIN,
              "outcomes": [o for o in body.get("outcomes", []) if o], "summary": body.get("summary", ""), "capacity": int(body.get("capacity", 40)),
              "taken": 0, "materials": [], "status": "open", "statusAt": now, "statusSource": "organizer"}
+    if props["end"] <= now:
+        raise HTTPException(400, "that time has already passed")
     run("MATCH (r:Room {id:$room}) CREATE (s:Session)-[:IN]->(r) SET s = $p", {"room": body.get("room", "hall-a"), "p": props})
+    # The week (and the automatic reseed) ends no earlier than the last added session.
+    run("MATCH (c:Conference) SET c.ends = CASE WHEN c.ends < $end THEN $end ELSE c.ends END", {"end": props["end"]})
+    _conf["ends"] = max(_conf["ends"], props["end"])
     if body.get("goal"):
         run("MATCH (s:Session {id:$sid}), (g:Goal {id:$g}) CREATE (s)-[:COVERS {depth:$d}]->(g)",
             {"sid": sid, "g": body["goal"], "d": int(body.get("depth", 2))})

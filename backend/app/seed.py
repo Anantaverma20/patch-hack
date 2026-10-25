@@ -418,7 +418,10 @@ def reset() -> int:
     except Exception:
         pass
 
-    sessions = _today_block(t0) + _agenda(day0, random.Random(3))
+    today = _today_block(t0)
+    for s in today:  # a late-evening reset can push part of the live block past midnight
+        s["day"] = min(max((local_date(s["start"]) - day0).days, 0), DAYS - 1)
+    sessions = today + _agenda(day0, random.Random(3))
     last = days[-1]
     dates = (f"{day0:%b} {day0.day}–{last.day}, {last.year}" if day0.month == last.month
              else f"{day0:%b} {day0.day} – {last:%b} {last.day}, {last.year}")

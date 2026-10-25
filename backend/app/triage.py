@@ -15,7 +15,14 @@ MODULE_CHECK = {"yaml": "deps-core", "tabulate": "deps-core", "jsonschema": "dep
                 "tiktoken": "deps-llm", "numpy": "deps-rag", "sklearn": "deps-rag", "falkordb": "deps-graph",
                 "mcp": "deps-mcp", "fastapi": "deps-api", "uvicorn": "deps-api", "httpx": "deps-api",
                 "pydantic": "deps-api", "pandas": "deps-data", "matplotlib": "deps-data"}
-TOOL_MISSING_RE = re.compile(r"\b(git|node|npm|docker)\b[^\n]*(not recognized|command not found|not found)")
+DIST_CHECK = {**MODULE_CHECK, "pyyaml": "deps-core", "scikit-learn": "deps-rag"}  # check.py prints pip names
+# Only the shapes a shell (or check.py) uses for a missing program, not "repository not found" etc.
+TOOL_MISSING_RE = re.compile(
+    r"^(?:\w+: )?(git|node|npm|docker): (?:command )?not found"
+    r"|'(git|node|npm|docker)' is not recognized as an internal or external command"
+    r"|command not found: (git|node|npm|docker)\b"
+    r"|^(git|node\.js|docker) not found on path", re.MULTILINE)
+MISSING_RE = re.compile(r"missing: ([\w.,\s-]+)")
 
 
 def rules(error: str, check_hint: str | None) -> dict:
@@ -36,7 +43,8 @@ def rules(error: str, check_hint: str | None) -> dict:
         out.update(checkId=out["checkId"] or "docker", errorCode="docker_not_running",
                    summary="Docker is installed but not running.")
     elif TOOL_MISSING_RE.search(low):
-        tool = TOOL_MISSING_RE.search(low).group(1)
+        m = TOOL_MISSING_RE.search(low)
+        tool = next(g for g in m.groups() if g).replace("node.js", "node")
         out.update(checkId=out["checkId"] or ("node" if tool == "npm" else tool), errorCode="tool_missing",
                    summary=f"{'Node.js' if tool in ('node', 'npm') else tool.capitalize()} isn't installed or isn't on PATH.")
     elif re.search(r"node(\.js)? v?1[0-7]\.", low):
@@ -50,6 +58,10 @@ def rules(error: str, check_hint: str | None) -> dict:
         owner = MODULE_CHECK.get(mod.group(1).split(".")[0]) if mod else None
         out.update(checkId=out["checkId"] or owner or "deps-core", errorCode="module_missing",
                    summary=f"Python package {mod.group(1) if mod else ''} isn't installed.".replace("  ", " "))
+    elif MISSING_RE.search(low) and any(p.strip() in DIST_CHECK for p in MISSING_RE.search(low).group(1).split(",")):
+        pkgs = [p.strip() for p in MISSING_RE.search(low).group(1).split(",") if p.strip() in DIST_CHECK]
+        out.update(checkId=out["checkId"] or DIST_CHECK[pkgs[0]], errorCode="module_missing",
+                   summary=f"Python package {', '.join(pkgs)} isn't installed.")
     elif re.search(r"python 3\.[0-9]\b", low) and "required" in low:
         out.update(checkId=out["checkId"] or "runtime", errorCode="python_too_old",
                    summary="Python version is older than the workshop needs.")

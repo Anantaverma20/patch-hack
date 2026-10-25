@@ -1,6 +1,6 @@
 import { useState } from "../vendor/preact-htm.js";
 import {
-  CountUp, DayTabs, Header, Icon, Modal, SessionStatus, Skeleton, TZ, ago, api, cap, dayName, fmtTime, fmtWhen, html, rel, serverNow,
+  CountUp, DayTabs, Header, Icon, Modal, SessionStatus, Skeleton, TZ, ago, api, cap, dayKey, dayName, fmtTime, fmtWhen, html, rel, serverNow,
   toast, useData,
 } from "./core.js";
 
@@ -103,12 +103,15 @@ function AddSession({ conf, day, onClose }) {
   // Default: 45 minutes from now on today's tab, 10:00 on any later day (venue time).
   const soon = new Date(Math.ceil((serverNow() + 45 * 60e3) / 300e3) * 300e3);
   const soonHHMM = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit" }).format(soon);
-  const [f, setF] = useState({ title: "", speaker: "", goal: "evals", depth: 2, level: "intermediate", format: "workshop", day,
-    time: day === 0 ? soonHHMM : "10:00", duration: 45, room: "room-c", requires: ["runtime"], capacity: 40, outcomes: [""] });
+  const soonDay = (conf.conference.dayKeys || []).indexOf(dayKey(soon));
+  // On today's tab (or when "soon" already rolled past midnight) use the soon slot with its own day.
+  const useSoon = soonDay >= 0 && soonDay >= day;
+  const [f, setF] = useState({ title: "", speaker: "", goal: "evals", depth: 2, level: "intermediate", format: "workshop",
+    day: useSoon ? soonDay : day, time: useSoon ? soonHHMM : "10:00", duration: 45, room: "room-c", requires: ["runtime"], capacity: 40, outcomes: [""] });
   const up = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const save = async () => {
     try { await api("/api/org/sessions", { ...f, day: Number(f.day) }); }
-    catch (e) { toast({ title: "Couldn't publish the session", body: "Check the day and start time.", kind: "warn" }); return; }
+    catch (e) { toast({ title: "Couldn't publish the session", body: "Pick a day and a start time that hasn't passed.", kind: "warn" }); return; }
     toast({ title: "Session published", body: `${f.title} · ${dayName(conf.conference, Number(f.day))} ${f.time}` }); onClose();
   };
   return html`<${Modal} onClose=${onClose}>
