@@ -2,8 +2,11 @@
 import hmac
 import os
 import random
+import re
 import threading
+from collections import Counter
 from contextlib import asynccontextmanager
+from datetime import date
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -23,6 +26,13 @@ FIX_TEXT = {
     "build_tools_missing": "Install the prebuilt wheel instead of building: "
                            "`pip install --only-binary=:all: pyyaml`, then run the check again.",
     "python_too_old": "Create the workshop venv with Python 3.11+: `py -3.11 -m venv .venv-unstuck`.",
+    "module_missing": "Activate the workshop venv, run `python check.py --install` to add the missing packages, "
+                      "then run the check again.",
+    "docker_not_running": "Start Docker Desktop and wait until it says it is running, then run `docker info` "
+                          "and the check again.",
+    "tool_missing": "Install the missing tool from the link in the check's steps, open a new terminal, "
+                    "then run the check again.",
+    "tool_too_old": "Install Node.js 20 LTS from https://nodejs.org, open a new terminal, then run the check again.",
 }
 
 @asynccontextmanager
@@ -36,11 +46,23 @@ app = FastAPI(title="Unstuck Live", lifespan=lifespan)
 _pings: dict[str, int] = {}          # token -> last successful ping to the mock workshop API
 _sim = {"pending_until": 0}
 _tick_lock = threading.Lock()
+_conf = {"ends": 0}                  # when the seeded week is over; the demo then starts a fresh week
+_reset_lock = threading.Lock()
+
+
+def _reseed() -> None:
+    _pings.clear()
+    _sim["pending_until"] = 0
+    seed.reset()
+    _conf["ends"] = conference().get("ends") or 0
 
 
 def _ensure_seeded() -> None:
-    if not one("MATCH (c:Conference) RETURN c.id AS id"):
-        seed.reset()
+    c = one("MATCH (c:Conference) RETURN c")
+    if not c or c["c"].get("seedVersion") != seed.SEED_VERSION:
+        _reseed()
+    else:
+        _conf["ends"] = c["c"].get("ends") or 0
 
 
 def conference() -> dict:
@@ -97,15 +119,19 @@ def health():
 
 @app.get("/api/version")
 def get_version():
+    if _conf["ends"] and now_ms() > _conf["ends"] and _reset_lock.acquire(blocking=False):
+        try:
+            _reseed()
+        finally:
+            _reset_lock.release()
     _tick()
     return {"v": version(), "now": now_ms()}
 
 
 @app.post("/api/reset")
 def reset():
-    _pings.clear()
-    _sim["pending_until"] = 0
-    seed.reset()
+    with _reset_lock:
+        _reseed()
     return {"ok": True}
 
 
@@ -113,7 +139,8 @@ def reset():
 def get_conference():
     return {"conference": conference(), "goals": rows("MATCH (g:Goal) RETURN g.id AS id, g.name AS name ORDER BY g.name"),
             "rooms": rows("MATCH (r:Room) RETURN r.id AS id, r.name AS name ORDER BY r.name"),
-            "checks": rows("MATCH (c:Check) RETURN c.id AS id, c.name AS name, c.detail AS detail ORDER BY c.id"),
+            "checks": rows("MATCH (c:Check) RETURN c.id AS id, c.name AS name, c.detail AS detail, c.kind AS kind, "
+                           "c.order AS order ORDER BY c.order"),
             "helpers": HELPERS, "now": now_ms()}
 
 
@@ -139,9 +166,11 @@ def me(aid: str = "a-demo"):
     plan = [_session_view(x, res, now) for x in all_s if x["session"]["id"] in plan_ids]
     plan.sort(key=lambda s: s["start"])
 
-    prev_room, prev_end = ("hall-a", None)
+    prev_room, prev_end, prev_day = ("hall-a", None, None)
     for s in plan:
         s["ackAt"] = plan_ids[s["id"]]
+        if s.get("day", 0) != prev_day:  # each morning starts at the registration desk
+            prev_room, prev_end, prev_day = "hall-a", None, s.get("day", 0)
         walk, _ = planner.walk_minutes(prev_room, s["room"]["id"])
         s["travel"] = {"walk": walk, "gap": round((s["start"] - prev_end) / MIN) if prev_end else None}
         if s["status"] not in ("cancelled", "full"):
@@ -161,7 +190,8 @@ def me(aid: str = "a-demo"):
             attention.append({"id": f"moved-{s['id']}-{s['statusAt']}", "kind": "moved", "sessionId": s["id"], "urgent": True,
                               "at": s["statusAt"], "text": f"“{s['title']}” moved to {s['room']['name']}."})
     for s in upcoming:
-        if s["requires"] and not s["readiness"]["ready"] and s["status"] not in ("full", "cancelled"):
+        soon = s["start"] < now + 24 * 60 * MIN  # later workshops wait on the Get Ready page
+        if soon and s["requires"] and not s["readiness"]["ready"] and s["status"] not in ("full", "cancelled"):
             attention.append({"id": f"setup-{s['id']}", "kind": "setup", "sessionId": s["id"], "urgent": False,
                               "text": f"Finish setup for “{s['title']}” — {s['readiness']['passed']} of {s['readiness']['total']} checks verified."})
 
@@ -175,7 +205,8 @@ def me(aid: str = "a-demo"):
             attention.insert(0, {"id": f"fix-{r['report']['id']}", "kind": "fix", "urgent": True, "checkId": r["checkId"],
                                  "text": f"The organizer published a fix for your {r['checkName']} blocker. Run the check again."})
 
-    checks = rows("MATCH (c:Check) RETURN c.id AS id, c.name AS name, c.detail AS detail, c.packages AS packages")
+    checks = rows("MATCH (c:Check) RETURN c.id AS id, c.name AS name, c.detail AS detail, c.packages AS packages, "
+                  "c.kind AS kind, c.order AS order ORDER BY c.order")
     needed = sorted({c for s in upcoming for c in s["requires"]})
     return {"now": now, "attendee": a, "plan": plan, "nextUp": next_up, "current": current, "attention": attention,
             "results": res, "checks": checks, "needed": needed, "reports": reports,
@@ -221,17 +252,30 @@ def onboard(body: dict = Body(...)):
     ranked = rows(
         "MATCH (s:Session) WHERE s.end > $now AND s.status <> 'cancelled' "
         "OPTIONAL MATCH (s)-[c:COVERS]->(g:Goal) WHERE g.id IN $goals "
-        "RETURN s.id AS id, s.start AS start, s.end AS end, coalesce(max(c.depth), 0) AS depth ORDER BY depth DESC, start",
+        "RETURN s.id AS id, s.start AS start, s.end AS end, coalesce(s.day, 0) AS day, "
+        "coalesce(s.keynote, false) AS keynote, coalesce(s.encoreOf, '') AS encoreOf, "
+        "coalesce(max(c.depth), 0) AS depth ORDER BY depth DESC, start",
         {"now": now, "goals": goals})
+    # Each day's keynote, then the sessions they picked, then the best goal matches.
+    # At most four a day (three when only loosely related), never two at once.
+    picked = set(interests)
+    order = sorted((r for r in ranked if r["keynote"] or r["id"] == "s1"), key=lambda r: r["start"]) + \
+        [r for r in ranked if r["id"] in picked] + \
+        [r for r in ranked if r["depth"] >= 3 and r["id"] not in picked] + \
+        [r for r in ranked if r["depth"] == 2 and r["id"] not in picked]
     chosen: list[dict] = []
-    order = [r for r in ranked if r["id"] == "s1"] + [r for r in ranked if r["id"] in interests] + \
-            [r for r in ranked if r["depth"] >= 3 and r["id"] not in interests and r["id"] != "s1"]
+    per_day: Counter = Counter()
     for r in order:
-        if len(chosen) >= 4:
-            break
+        limit = 3 if r["depth"] < 3 and r["id"] not in picked and not r["keynote"] else 4
+        if any(c["id"] == r["id"] for c in chosen) or per_day[r["day"]] >= limit:
+            continue
+        # A repeat of something already in the plan stays free for Plan Rescue.
+        if any(r["encoreOf"] == c["id"] or c["encoreOf"] == r["id"] for c in chosen):
+            continue
         if any(c["start"] < r["end"] and r["start"] < c["end"] for c in chosen):
             continue
         chosen.append(r)
+        per_day[r["day"]] += 1
     run("UNWIND $ids AS sid MATCH (a:Attendee {id:$aid}), (s:Session {id:sid}) CREATE (a)-[:PLANS {at:$now}]->(s)",
         {"aid": aid, "ids": [c["id"] for c in chosen], "now": now})
     bump()
@@ -285,12 +329,12 @@ def manifest(token: str):
     req = rows(
         "MATCH (a:Attendee {id:$aid})-[:PLANS]->(s:Session)-[:REQUIRES]->(c:Check) "
         "WHERE s.end > $now AND NOT s.status IN ['cancelled', 'full'] "
-        "RETURN DISTINCT c.id AS id, c.name AS name, c.kind AS kind, c.packages AS packages",
+        "RETURN DISTINCT c.id AS id, c.name AS name, c.kind AS kind, c.packages AS packages, "
+        "c.command AS command, c.minVersion AS minVersion, c.order AS order",
         {"aid": a["id"], "now": now})
     if not any(c["id"] == "runtime" for c in req):
-        req.insert(0, {"id": "runtime", "name": "Required runtime", "kind": "runtime", "packages": []})
-    order = ["runtime", "deps-core", "deps-evals", "service", "exercise"]
-    req.sort(key=lambda c: order.index(c["id"]) if c["id"] in order else 99)
+        req.insert(0, {"id": "runtime", "name": "Required runtime", "kind": "runtime", "packages": [], "order": 1})
+    req.sort(key=lambda c: c.get("order") or 99)
     return {"attendee": a["name"], "checks": req, "endpoint": conference()["endpoint"], "key": token, "minPython": "3.10"}
 
 
@@ -456,12 +500,28 @@ def set_status(sid: str, body: dict = Body(...)):
 def add_session(body: dict = Body(...)):
     now = now_ms()
     sid = f"s-{now}"
-    start = now + int(body.get("startIn", 30)) * MIN
-    props = {"id": sid, "title": body["title"], "speaker": body.get("speaker", ""), "format": body.get("format", "talk"),
+    day0 = date.fromisoformat(conference()["day0"])
+    if body.get("time") is not None:  # a conference day plus HH:MM in venue time
+        try:
+            day, hhmm = int(body.get("day", 0)), str(body["time"])
+            if not (0 <= day < seed.DAYS and re.fullmatch(r"\d{1,2}:\d{2}", hhmm)):
+                raise ValueError
+            start = seed.at(day0, day, hhmm)
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"day must be 0-{seed.DAYS - 1} and time HH:MM") from None
+    else:
+        start = now + int(body.get("startIn", 30)) * MIN
+        day = min(max((seed.local_date(start) - day0).days, 0), seed.DAYS - 1)
+    props = {"id": sid, "title": body["title"], "day": day, "speaker": body.get("speaker", ""), "format": body.get("format", "talk"),
              "level": body.get("level", "intermediate"), "start": start, "end": start + int(body.get("duration", 45)) * MIN,
              "outcomes": [o for o in body.get("outcomes", []) if o], "summary": body.get("summary", ""), "capacity": int(body.get("capacity", 40)),
              "taken": 0, "materials": [], "status": "open", "statusAt": now, "statusSource": "organizer"}
+    if props["end"] <= now:
+        raise HTTPException(400, "that time has already passed")
     run("MATCH (r:Room {id:$room}) CREATE (s:Session)-[:IN]->(r) SET s = $p", {"room": body.get("room", "hall-a"), "p": props})
+    # The week (and the automatic reseed) ends no earlier than the last added session.
+    run("MATCH (c:Conference) SET c.ends = CASE WHEN c.ends < $end THEN $end ELSE c.ends END", {"end": props["end"]})
+    _conf["ends"] = max(_conf["ends"], props["end"])
     if body.get("goal"):
         run("MATCH (s:Session {id:$sid}), (g:Goal {id:$g}) CREATE (s)-[:COVERS {depth:$d}]->(g)",
             {"sid": sid, "g": body["goal"], "d": int(body.get("depth", 2))})
@@ -477,12 +537,14 @@ def org_readiness():
         "MATCH (s:Session)-[:REQUIRES]->(c:Check) "
         "OPTIONAL MATCH (a:Attendee)-[:PLANS]->(s) "
         "OPTIONAL MATCH (a)-[r:RESULT]->(c) "
-        "RETURN s.id AS sid, s.title AS title, s.start AS start, c.id AS cid, c.name AS check, count(DISTINCT a) AS planned, "
+        "RETURN s.id AS sid, s.title AS title, s.start AS start, coalesce(s.day, 0) AS day, c.id AS cid, c.name AS check, "
+        "c.order AS ord, count(DISTINCT a) AS planned, "
         "sum(CASE WHEN r.status = 'pass' AND r.verified THEN 1 ELSE 0 END) AS pass, "
-        "sum(CASE WHEN r.status = 'fail' THEN 1 ELSE 0 END) AS fail ORDER BY start, cid")
+        "sum(CASE WHEN r.status = 'fail' THEN 1 ELSE 0 END) AS fail ORDER BY start, ord")
     sessions: dict[str, dict] = {}
     for r in per:
-        s = sessions.setdefault(r["sid"], {"id": r["sid"], "title": r["title"], "start": r["start"], "checks": []})
+        s = sessions.setdefault(r["sid"], {"id": r["sid"], "title": r["title"], "start": r["start"], "day": r["day"],
+                                           "checks": []})
         s["checks"].append({"id": r["cid"], "name": r["check"], "planned": r["planned"], "pass": r["pass"], "fail": r["fail"]})
     failures = rows(
         "MATCH (a:Attendee)-[r:RESULT {status:'fail'}]->(c:Check) WHERE r.errorCode <> 'blocked_by_previous' "

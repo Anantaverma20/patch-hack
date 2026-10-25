@@ -73,11 +73,14 @@ def get_readiness_summary() -> dict:
 
 @mcp_server.tool(annotations=READ)
 def list_sessions() -> list[dict]:
-    """Sessions with time, room, status, attendance and how many planned attendees are setup-ready."""
-    from . import main
+    """Sessions across the conference week with day, venue time (San Francisco), room, status,
+    attendance and how many planned attendees are setup-ready."""
+    from . import main, seed
 
-    return [{"id": s["id"], "title": s["title"], "room": s["room"]["name"], "status": s["status"],
-             "start_ms": s["start"], "planned": s["planned"], "setup_ready": s["ready"],
+    days = main.conference().get("days") or []
+    return [{"id": s["id"], "title": s["title"], "day": days[s.get("day", 0)] if s.get("day", 0) < len(days) else "",
+             "starts": seed.fmt_local(s["start"]), "start_ms": s["start"], "format": s["format"],
+             "room": s["room"]["name"], "status": s["status"], "planned": s["planned"], "setup_ready": s["ready"],
              "seats": f"{s['taken']}/{s['capacity']}"} for s in main.org_sessions()["sessions"]]
 
 

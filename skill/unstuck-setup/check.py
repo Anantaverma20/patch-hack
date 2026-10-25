@@ -19,6 +19,7 @@ import json
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -27,7 +28,13 @@ import urllib.request
 ENV_FILE = "workshop.env"
 # Plain distribution names only, so nothing from the manifest can be read as a pip option.
 PACKAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-IMPORT_NAMES = {"pyyaml": "yaml", "jsonschema": "jsonschema", "tabulate": "tabulate"}
+IMPORT_NAMES = {"pyyaml": "yaml", "scikit-learn": "sklearn"}
+# The only programs check.py will run. The manifest can name a tool, never a command line.
+TOOLS = {
+    "git": {"label": "Git", "version": ["git", "--version"]},
+    "node": {"label": "Node.js", "version": ["node", "--version"]},
+    "docker": {"label": "Docker", "version": ["docker", "--version"], "running": ["docker", "info", "--format", "{{.ServerVersion}}"]},
+}
 
 
 def http(method, url, body=None, headers=None, timeout=10):
@@ -67,6 +74,36 @@ def check_packages(pkgs):
     if missing:
         return "fail", "missing: " + ", ".join(missing), "module_missing"
     return "pass", "installed: " + ", ".join(pkgs), ""
+
+
+def _run(cmd, timeout=20):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.returncode, (r.stdout or r.stderr).strip().splitlines()[0:1]
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return 1, [str(e)]
+
+
+def check_tool(c):
+    tool = TOOLS.get(c.get("command", ""))
+    if not tool:
+        return "fail", f"unknown tool {c.get('command')!r}", "unknown_tool"
+    if not shutil.which(tool["version"][0]):
+        return "fail", f"{tool['label']} not found on PATH", "tool_missing"
+    code, out = _run(tool["version"])
+    line = out[0] if out else ""
+    if code != 0:
+        return "fail", f"{tool['label']} found but `{' '.join(tool['version'])}` failed: {line}", "tool_missing"
+    need = c.get("minVersion")
+    have = re.search(r"(\d+)\.(\d+)", line)
+    if need and have and int(have.group(1)) < int(need.split(".")[0]):
+        return "fail", f"{tool['label']} {line} found; {need}+ required", "tool_too_old"
+    if "running" in tool:
+        code, out = _run(tool["running"])
+        if code != 0:
+            return "fail", f"{tool['label']} is installed but not running ({out[0] if out else 'no response'})", "docker_not_running"
+        return "pass", f"{line}, engine {out[0] if out else 'running'}", ""
+    return "pass", line, ""
 
 
 def check_service(server):
@@ -145,6 +182,8 @@ def main():
             st, detail, err = check_runtime(manifest)
         elif c["kind"] == "deps":
             st, detail, err = check_packages(c.get("packages", []))
+        elif c["kind"] == "tool":
+            st, detail, err = check_tool(c)
         elif c["kind"] == "service":
             st, detail, err = check_service(a.server)
         elif c["kind"] == "exercise":
@@ -156,7 +195,7 @@ def main():
     print(f"\nUnstuck readiness for {manifest['attendee']}\n")
     for r in results:
         mark = "PASS" if r["status"] == "pass" else "FAIL"
-        print(f"  [{mark}] {r['name']:<24} {r['detail']}")
+        print(f"  [{mark}] {r['name']:<26} {r['detail']}")
     passed = all(r["status"] == "pass" for r in results)
     print("\n" + ("Your environment passed this workshop's checks." if passed else "Some checks failed. See details above."))
     print("RESULT_JSON " + json.dumps({"results": results}))

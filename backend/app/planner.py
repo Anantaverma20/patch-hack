@@ -63,14 +63,14 @@ def walk_minutes(a: str, b: str) -> tuple[int, bool]:
     return _walks.get((a, b), (10, True))
 
 
-def location_before(aid: str, start: int, exclude: str | None = None) -> tuple[str, str]:
+def location_before(aid: str, start: int, exclude: str | None = None, day: int = 0) -> tuple[str, str]:
     """Room the attendee will be in just before `start`: their latest planned session that
-    started earlier (other than `exclude`), else the registration desk."""
+    started earlier the same day (other than `exclude`), else the registration desk."""
     r = one(
         "MATCH (a:Attendee {id:$aid})-[:PLANS]->(s:Session)-[:IN]->(r:Room) "
-        "WHERE s.start < $start AND s.id <> $ex AND NOT s.status IN ['cancelled'] "
+        "WHERE s.start < $start AND s.id <> $ex AND coalesce(s.day, 0) = $day AND NOT s.status IN ['cancelled'] "
         "RETURN r.id AS id, r.name AS name ORDER BY s.start DESC LIMIT 1",
-        {"aid": aid, "start": start, "ex": exclude or ""},
+        {"aid": aid, "start": start, "ex": exclude or "", "day": day},
     )
     return (r["id"], r["name"]) if r else (START_ROOM, "Hall A")
 
@@ -82,6 +82,10 @@ def rescue(aid: str, sid: str) -> dict:
     candidate's required checks joined with this attendee's verified results. Feasibility
     (arrive in time, step-free, no clash) is then applied per candidate, and every
     rejected candidate keeps its reason so the UI can show "why not".
+
+    Same-day alternatives come first. A repeat of the disrupted session later in the week
+    (an encore) always gets a slot, then other later-day options fill any gaps; rejected
+    reasons are only listed for the same day, where they matter.
     """
     now = now_ms()
     orig = one(
@@ -105,10 +109,14 @@ def rescue(aid: str, sid: str) -> dict:
     )
     check_names = {c["id"]: c["name"] for c in rows("MATCH (c:Check) RETURN c.id AS id, c.name AS name")}
 
-    options, rejected = [], []
+    orig_day = orig["s"].get("day", 0)
+    same, later, rejected = [], [], []
     for c in cands:
         s, room = c["s"], c["room"]
-        from_id, from_name = location_before(aid, s["start"], exclude=sid)
+        same_day = s.get("day", 0) == orig_day
+        if s.get("day", 0) < orig_day:  # earlier in the week isn't a replacement
+            continue
+        from_id, from_name = location_before(aid, s["start"], exclude=sid, day=s.get("day", 0))
         walk, step_free = walk_minutes(from_id, room["id"])
         best = max(c["goals"], key=lambda g: g["depth"])
         why_not = None
@@ -128,20 +136,23 @@ def rescue(aid: str, sid: str) -> dict:
             if clash:
                 why_not = f"Overlaps “{clash['title']}” in your day"
         if why_not:
-            rejected.append({"id": s["id"], "title": s["title"], "reason": why_not})
+            if same_day:
+                rejected.append({"id": s["id"], "title": s["title"], "reason": why_not})
             continue
         level_fit = s["level"] == a.get("level") or s["level"] == "beginner" and a.get("level") == "beginner"
         score = best["depth"] * 10 - len(c["missing"]) * 3 - walk * 0.4 + (4 if level_fit else -4) \
             - max(0, (s["start"] - now) / MIN - 30) * 0.05
         seats = max(0, (s.get("capacity") or 0) - (s.get("taken") or 0))
-        options.append({
+        encore = s.get("encoreOf") == sid
+        (same if same_day else later).append({
             "session": s, "room": room, "goal": best, "requires": c["requires"],
             "missing": c["missing"], "missingNames": [check_names.get(m, m) for m in c["missing"]],
             "walk": walk, "stepFree": step_free, "from": from_name, "levelFit": level_fit,
             "startsIn": round((s["start"] - now) / MIN), "seats": seats, "score": score,
+            "later": not same_day, "encore": encore,
             "path": [
                 {"kind": "goal", "label": f"Your goal: {best['name']}"},
-                {"kind": "edge", "label": f"covered in depth {best['depth']}/3"},
+                {"kind": "edge", "label": "repeat of the full session" if encore else f"covered in depth {best['depth']}/3"},
                 {"kind": "session", "label": s["title"]},
                 {"kind": "edge", "label": f"{walk}-min walk from {from_name}"},
                 {"kind": "room", "label": room["name"]},
@@ -149,5 +160,8 @@ def rescue(aid: str, sid: str) -> dict:
                 {"kind": "checkwarn" if c["missing"] else "check", "label": f"{len(c['requires']) - len(c['missing'])} of {len(c['requires'])} checks verified" if c["requires"] else "no setup needed"},
             ],
         })
-    options.sort(key=lambda o: -o["score"])
-    return {"now": now, "original": orig, "options": options[:3], "rejected": rejected}
+    same.sort(key=lambda o: -o["score"])
+    later.sort(key=lambda o: (not o["encore"], -o["score"]))
+    options = same[:2 if later and later[0]["encore"] else 3]
+    options += later[:3 - len(options)]
+    return {"now": now, "original": orig, "options": options, "rejected": rejected}

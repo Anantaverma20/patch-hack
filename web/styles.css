@@ -412,3 +412,20 @@ label.field { display: block; font-weight: 600; font-size: 14px; margin: 18px 0 
 .cp-approval { background: var(--amber-soft); border: 1px solid #efd3a3; border-radius: 14px; padding: 12px; }
 .cp-input { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--line); background: var(--card); }
 @media (max-width: 860px) { .cp-fab { bottom: 90px; } .cp-panel { right: 16px; bottom: 16px; } }
+
+/* ---------- multi-day schedule */
+.day-tabs { margin: 0 0 16px; }
+.day-group + .day-group { margin-top: 4px; }
+.day-head { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 4px;
+  background: none; border: 0; border-top: 1px solid var(--line); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.day-head b { font-family: var(--serif); font-weight: 500; font-size: 20px; margin-right: 6px; }
+.day-head .chev { vertical-align: -3px; transition: transform .2s ease; }
+.day-head.open .chev { transform: rotate(90deg); }
+.day-head:hover b { text-decoration: underline; text-decoration-color: var(--lime-deep); text-underline-offset: 4px; }
+.day-group .timeline { margin: 4px 0 14px; }
+.day-title { margin: 28px 0 12px; }
+.day-title:first-child { margin-top: 0; }
+.day-title .small { font-family: var(--sans, inherit); font-size: 13.5px; margin-left: 4px; }
+.pick-day + .pick-day { margin-top: 12px; }
+.pick-day-label { margin: 6px 0 8px; }
+.past-card { opacity: .6; }

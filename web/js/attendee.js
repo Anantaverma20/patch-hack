@@ -1,7 +1,19 @@
 import { useEffect, useRef, useState } from "../vendor/preact-htm.js";
 import {
-  AID, Copy, Drawer, Header, Icon, ReadyPill, SessionStatus, Skeleton, ago, api, cap, fmtTime, html, rel, toast, useData, useNow,
+  AID, Copy, Drawer, Header, Icon, ReadyPill, SessionStatus, Skeleton, ago, api, cap, dayName, fmtTime, fmtWhen, html, localHour, rel,
+  serverNow, toast, useData, useNow,
 } from "./core.js";
+
+const HANDS_ON = ["workshop", "hackathon"];
+// Consecutive runs of sessions on the same conference day.
+function byDay(list) {
+  const out = [];
+  for (const s of list) {
+    const g = out[out.length - 1];
+    if (g && g.day === (s.day ?? 0)) g.items.push(s); else out.push({ day: s.day ?? 0, items: [s] });
+  }
+  return out;
+}
 
 const go = (h) => { location.hash = h; };
 const first = (name) => (name || "").split(" ")[0];
@@ -24,7 +36,7 @@ export function Join({ conf }) {
     go("#/attendee/myday");
   };
   const c = conf?.conference;
-  const pickable = (sessions?.sessions || []).filter((s) => s.end > Date.now() && s.id !== "s1");
+  const pickable = (sessions?.sessions || []).filter((s) => s.end > serverNow() && HANDS_ON.includes(s.format));
 
   return html`<div class="join">
     <div class="hero-card rise">
@@ -54,10 +66,12 @@ export function Join({ conf }) {
       <div class="chips">${["beginner", "intermediate", "advanced"].map((l) => html`
         <button class=${`chip ${level === l ? "on" : ""}`} onClick=${() => setLevel(l)}>${cap(l)}</button>`)}</div>
 
-      <label class="field">Sessions you're interested in <span class="muted small">(optional)</span></label>
-      <div class="chips">${pickable.map((s) => html`
-        <button class=${`chip ${interests.includes(s.id) ? "on" : ""}`} onClick=${() => toggle(interests, setInterests, s.id)}>
-          ${s.title} <span class="muted small">· ${fmtTime(s.start)}</span></button>`)}</div>
+      <label class="field">Hands-on workshops you'd like to join <span class="muted small">(optional; talks are added for your goals)</span></label>
+      ${byDay(pickable).map((g) => html`<div class="pick-day">
+        <div class="small muted pick-day-label">${dayName(c, g.day)}${c?.themes?.[g.day] ? ` · ${c.themes[g.day]}` : ""}</div>
+        <div class="chips">${g.items.map((s) => html`
+          <button class=${`chip ${interests.includes(s.id) ? "on" : ""}`} onClick=${() => toggle(interests, setInterests, s.id)}>
+            ${s.title} <span class="muted small">· ${fmtTime(s.start)}</span></button>`)}</div></div>`)}
 
       <label class="field">Preferences <span class="muted small">(optional)</span></label>
       <div class="row">
@@ -76,16 +90,22 @@ export function Join({ conf }) {
 
 // ================================================================ My Day
 
-export function MyDay({ me, openRescue }) {
+export function MyDay({ me, conf, openRescue }) {
   const now = useNow(10000);
+  const [shown, setShown] = useState({});
   if (!me) return html`<${Skeleton} />`;
   const a = me.attendee;
-  const hour = new Date(now).getHours();
+  const c = conf?.conference;
+  const hour = localHour(now);
   const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const n = me.nextUp;
+  const groups = byDay(me.plan);
+  // The first two days that still have something ahead start open; the rest fold away.
+  const openByDefault = new Set(groups.filter((g) => g.items.some((s) => s.end > now)).slice(0, 2).map((g) => g.day));
+  const isOpen = (d) => shown[d] ?? openByDefault.has(d);
   return html`
     <${Header} eyebrow="My day" title=${`${greet}, ${first(a.name)}.`} lede="What's next, and only what needs your attention." />
-    ${n ? html`<${NextUp} s=${n} openRescue=${openRescue} now=${now} />` : html`<div class="card rise">You're done for today. Nice work.</div>`}
+    ${n ? html`<${NextUp} s=${n} openRescue=${openRescue} now=${now} />` : html`<div class="card rise">You're done for the week. Nice work.</div>`}
 
     ${me.attention.length > 0 && html`<div class="section">
       <h2 class="rise">Needs attention</h2>
@@ -93,8 +113,14 @@ export function MyDay({ me, openRescue }) {
     </div>`}
 
     <div class="section">
-      <div class="between"><h2 class="rise">Your timeline</h2><a class="btn ghost sm" href="#/attendee/sessions"><${Icon} n="plus" s=${16} /> Add sessions</a></div>
-      <div class="timeline">${me.plan.map((s, i) => html`<${TimelineItem} key=${s.id} s=${s} i=${i} now=${now} openRescue=${openRescue} />`)}</div>
+      <div class="between"><h2 class="rise">Your week</h2><a class="btn ghost sm" href="#/attendee/sessions"><${Icon} n="plus" s=${16} /> Add sessions</a></div>
+      ${groups.map((g) => html`<div class="day-group" key=${g.day}>
+        <button class=${`day-head ${isOpen(g.day) ? "open" : ""}`} aria-expanded=${isOpen(g.day)} onClick=${() => setShown({ ...shown, [g.day]: !isOpen(g.day) })}>
+          <span><b>${dayName(c, g.day)}</b> <span class="muted small">${c?.themes?.[g.day] || ""}</span></span>
+          <span class="muted small">${g.items.length} session${g.items.length > 1 ? "s" : ""} <${Icon} n="chevron" s=${15} cls="chev" /></span>
+        </button>
+        ${isOpen(g.day) && html`<div class="timeline">${g.items.map((s, i) => html`<${TimelineItem} key=${s.id} s=${s} i=${i} now=${now} openRescue=${openRescue} />`)}</div>`}
+      </div>`)}
     </div>`;
 }
 
@@ -109,7 +135,7 @@ function NextUp({ s, openRescue, now }) {
     </div>
     <h2 style="position:relative">${s.title}</h2>
     <div class="meta" style="position:relative">
-      <span><${Icon} n="clock" s=${16} /> ${fmtTime(s.start)}–${fmtTime(s.end)}</span>
+      <span><${Icon} n="clock" s=${16} /> ${fmtWhen(s.start, now)}–${fmtTime(s.end)}</span>
       <span><${Icon} n="pin" s=${16} /> ${s.room.name}</span>
       <span><${Icon} n="users" s=${16} /> ${s.speaker}</span>
       ${s.status !== "open" && html`<${SessionStatus} s=${s} />`}
@@ -173,7 +199,7 @@ function TimelineItem({ s, i, now, openRescue }) {
 
 // ================================================================ Sessions
 
-export function Sessions({ me, query }) {
+export function Sessions({ me, conf, query }) {
   const [data] = useData(`/api/sessions?aid=${AID}`);
   const [q, setQ] = useState("");
   const [topic, setTopic] = useState("");
@@ -185,29 +211,37 @@ export function Sessions({ me, query }) {
   if (!data) return html`<${Header} eyebrow="Sessions" title="Find your sessions." /><${Skeleton} />`;
   const now = data.now;
   const goals = me?.attendee?.goals || [];
+  const c = conf?.conference;
+  const inWhen = (s) => when === "all" ? true : when === "upcoming" ? s.end > now
+    : when === "hour" ? s.start < now + 3600e3 && s.end > now : (s.day ?? 0) === Number(when.slice(4));
   const list = data.sessions.filter((s) =>
     (!q || (s.title + s.speaker + s.summary).toLowerCase().includes(q.toLowerCase())) &&
-    (!topic || s.covers.some((c) => c.goal === topic)) && (!level || s.level === level) && (!format || s.format === format) &&
-    (when === "all" || (when === "upcoming" ? s.end > now : when === "hour" ? s.start < now + 3600e3 && s.end > now : s.start >= now + 3600e3)));
+    (!topic || s.covers.some((c) => c.goal === topic)) && (!level || s.level === level) && (!format || s.format === format) && inWhen(s));
   const goalNames = Object.fromEntries((data.sessions.flatMap((s) => s.covers)).map((c) => [c.goal, c.name]));
+  const formats = [...new Set(data.sessions.map((s) => s.format))];
+  let n = 0;
   return html`
-    <${Header} eyebrow="Sessions" title="Find your sessions." lede="Fit and setup readiness are shown separately: having the tools installed doesn't mean the level is right for you." />
+    <${Header} eyebrow="Sessions" title="Find your sessions." lede=${`${data.sessions.length} sessions over ${c?.days?.length || 1} days. Fit and setup readiness are shown separately: having the tools installed doesn't mean the level is right for you.`} />
     <div class="card rise" style="padding:14px;display:grid;grid-template-columns:2fr repeat(4,1fr);gap:10px" >
       <div style="position:relative"><span style="position:absolute;left:12px;top:11px;color:var(--muted)"><${Icon} n="search" s=${18} /></span>
         <input class="input" style="padding-left:38px" placeholder="Search sessions or speakers" value=${q} onInput=${(e) => setQ(e.target.value)} /></div>
       <select class="input" value=${topic} onChange=${(e) => setTopic(e.target.value)}><option value="">All topics</option>
         ${Object.entries(goalNames).map(([id, n]) => html`<option value=${id}>${n}</option>`)}</select>
       <select class="input" value=${when} onChange=${(e) => setWhen(e.target.value)}>
-        <option value="upcoming">Upcoming</option><option value="hour">Next hour</option><option value="later">Later today</option><option value="all">All day</option></select>
+        <option value="upcoming">All upcoming</option><option value="hour">Next hour</option>
+        ${(c?.days || []).map((_, i) => html`<option value=${`day-${i}`}>${dayName(c, i)}</option>`)}
+        <option value="all">Whole week, incl. past</option></select>
       <select class="input" value=${level} onChange=${(e) => setLevel(e.target.value)}><option value="">Any level</option>
         <option value="beginner">Beginner</option><option value="intermediate">Intermediate</option><option value="advanced">Advanced</option></select>
       <select class="input" value=${format} onChange=${(e) => setFormat(e.target.value)}><option value="">Any format</option>
-        <option value="workshop">Workshop</option><option value="talk">Talk</option><option value="office hours">Office hours</option></select>
+        ${formats.map((f) => html`<option value=${f}>${cap(f)}</option>`)}</select>
     </div>
     <div class="section" style="margin-top:18px">
       ${list.length === 0 && html`<div class="soft">No sessions match those filters.</div>`}
-      ${list.map((s, i) => html`<${SessionCard} key=${s.id} s=${s} i=${i} now=${now} goals=${goals} myLevel=${me?.attendee?.level}
-        open=${open === s.id} onToggle=${() => setOpen(open === s.id ? null : s.id)} />`)}
+      ${byDay(list).map((g) => html`<div key=${g.day}>
+        <h2 class="day-title rise">${dayName(c, g.day)}<span class="muted small">${c?.themes?.[g.day] ? ` · ${c.themes[g.day]}` : ""} · ${g.items.length} session${g.items.length > 1 ? "s" : ""}</span></h2>
+        ${g.items.map((s) => html`<${SessionCard} key=${s.id} s=${s} i=${n++} now=${now} goals=${goals} myLevel=${me?.attendee?.level}
+          open=${open === s.id} onToggle=${() => setOpen(open === s.id ? null : s.id)} />`)}</div>`)}
     </div>`;
 }
 
@@ -227,7 +261,7 @@ function SessionCard({ s, i, now, open, onToggle, myLevel }) {
     </div>
     <ul style="margin:12px 0;padding-left:18px;color:var(--ink-2)">${s.outcomes.slice(0, 2).map((o) => html`<li>${o}</li>`)}</ul>
     <div class="row small">
-      <span class="pill"><${Icon} n="clock" s=${13} /> ${fmtTime(s.start)} · ${rel(s.start, now)}</span>
+      <span class="pill"><${Icon} n="clock" s=${13} /> ${fmtWhen(s.start, now)}–${fmtTime(s.end)} · ${rel(s.start, now)}</span>
       <span class="pill"><${Icon} n="pin" s=${13} /> ${s.room.name}</span>
       <span class="pill">Recommended: ${cap(s.level)}${myLevel && s.level !== myLevel ? ` · you: ${cap(myLevel)}` : ""}</span>
       <span class=${`pill ${s.status === "full" ? "full" : s.seats < 5 ? "amber" : ""}`}>
@@ -260,6 +294,8 @@ const LABEL = (c, r) => {
   if (r.status === "pass") return ["Unverified", "amber"];
   if (r.errorCode === "blocked_by_previous") return ["Waiting on earlier check", ""];
   if (c.kind === "deps") return ["Needs installation", "action"];
+  if (r.errorCode === "docker_not_running") return ["Start Docker", "action"];
+  if (c.kind === "tool") return [r.errorCode === "tool_too_old" ? "Needs update" : "Needs install", "action"];
   if (r.errorCode === "not_signed_in" || r.errorCode === "auth_rejected") return ["Needs sign-in", "action"];
   if (r.errorCode === "endpoint_retired") return ["Blocked · endpoint retired", "red"];
   return ["Action needed", "action"];
@@ -278,8 +314,7 @@ export function GetReady({ me }) {
   if (!me) return html`<${Skeleton} />`;
   const origin = location.origin;
   const token = me.attendee.token;
-  const checks = me.checks.filter((c) => me.needed.includes(c.id))
-    .sort((a, b) => ["runtime", "deps-core", "deps-evals", "service", "exercise"].indexOf(a.id) - ["runtime", "deps-core", "deps-evals", "service", "exercise"].indexOf(b.id));
+  const checks = me.checks.filter((c) => me.needed.includes(c.id)).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
   const allReady = checks.length > 0 && checks.every((c) => me.results[c.id]?.status === "pass" && me.results[c.id]?.verified);
   const flash = {};
   for (const c of checks) {
@@ -287,7 +322,7 @@ export function GetReady({ me }) {
     if (prev.current[c.id] && prev.current[c.id] !== key) flash[c.id] = true;
     prev.current[c.id] = key;
   }
-  const sessionsFor = (cid) => me.plan.filter((s) => s.requires.includes(cid) && s.end > Date.now() && s.status !== "full").map((s) => s.title);
+  const sessionsFor = (cid) => me.plan.filter((s) => s.requires.includes(cid) && s.end > serverNow() && s.status !== "full").map((s) => s.title);
   const cmds = {
     claude: `mkdir unstuck-workshop && cd unstuck-workshop
 mkdir -p .claude/skills/unstuck-setup
@@ -340,7 +375,7 @@ python check.py --server ${origin} --token ${token} --send`,
           <button class="btn" onClick=${() => setStarted(true)}>Open setup instructions</button>
         </div>`
       : html`<div class="card fade">
-          <div class="between"><h2 style="margin:0">Run the setup skill on your laptop</h2><span class="pill">agent-evals-setup 1.2.0 · organizer-approved</span></div>
+          <div class="between"><h2 style="margin:0">Run the setup skill on your laptop</h2><span class="pill">${checks.length} checks for your week · organizer-approved</span></div>
           <div class="row" style="margin:16px 0 12px">
             ${[["claude", "Claude Code"], ["codex", "Codex"], ["manual", "Without an agent"]].map(([k, l]) => html`
               <button class=${`chip ${tab === k ? "on" : ""}`} onClick=${() => setTab(k)}>${l}</button>`)}
@@ -384,7 +419,7 @@ export function Help({ me, query }) {
 
   return html`
     <${Header} eyebrow=${session?.live ? "Session companion · live" : "Session companion"} title=${session ? session.title : "Help"}
-      lede=${session ? `${session.room.name} · ${fmtTime(session.start)}–${fmtTime(session.end)} · ${session.speaker}` : "No hands-on session in your day right now."} />
+      lede=${session ? `${session.room.name} · ${fmtWhen(session.start)}–${fmtTime(session.end)} · ${session.speaker}` : "No hands-on session in your plan right now."} />
     ${session && html`<div class="grid2" style="align-items:start">
       <div class="card rise" style="--i:1">
         <h2>Exercise steps</h2>
@@ -492,10 +527,11 @@ export function Rescue({ sid, me, onClose }) {
             : o.missing.length === 0 ? "your setup passes its checks" : `your setup passes ${passed} of ${o.requires.length} checks`;
           return html`<div class=${`card opt rise ${i === 0 ? "best" : ""}`} style=${`--i:${i};margin-top:${i ? 18 : 6}px`} key=${o.session.id}>
             ${i === 0 && html`<span class="pill lime rank">Best fit</span>`}
-            <div class="between" style="align-items:flex-start"><h3 style="font-size:18px">${o.session.title}</h3><span class="pill">${cap(o.session.format)}</span></div>
+            <div class="between" style="align-items:flex-start"><h3 style="font-size:18px">${o.session.title}</h3>
+              <span class="row" style="gap:6px">${o.encore ? html`<span class="pill lime">Encore</span>` : o.later ? html`<span class="pill">Later this week</span>` : null}<span class="pill">${cap(o.session.format)}</span></span></div>
             <p style="margin:8px 0 0">This session covers <b>${o.goal.short}</b>, ${setup}, and it starts <b>${rel(o.session.start)}</b>${o.walk <= 4 ? " nearby" : ""}.</p>
             <div class="facts">
-              <div class="fact"><span class="muted">Starts</span><b>${fmtTime(o.session.start)}</b>${rel(o.session.start)}</div>
+              <div class="fact"><span class="muted">Starts</span><b>${fmtWhen(o.session.start)}</b>${rel(o.session.start)}</div>
               <div class="fact"><span class="muted">Where</span><b>${o.room.name}</b>${o.walk}-min walk${o.stepFree ? " · step-free" : ""}</div>
               <div class="fact"><span class="muted">Seats</span><b>${o.seats} left</b>organizer, ${ago(o.session.statusAt)}</div>
             </div>
